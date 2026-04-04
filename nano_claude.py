@@ -301,9 +301,10 @@ def cmd_save(args: str, state, _config) -> bool:
     return True
 
 def cmd_save_2(args: str, state, _config) -> bool:
-    from config import MR_SESSIONS_DIR
-    fname = args.strip() or "nigga.json"
-    path = Path(fname) if "/" in fname else MR_SESSIONS_DIR / fname
+    from config import MR_SESSION_DIR
+    fname = args.strip() or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    path = Path(fname) if "/" in fname else MR_SESSION_DIR / fname
+    path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "messages": [
             m if not isinstance(m.get("content"), list) else
@@ -1149,6 +1150,10 @@ def repl(config: dict, initial_prompt: str = None):
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
+            try:
+                cmd_save_2("", state, config)
+            except Exception as e:
+                warn(f"Auto-save failed on exit: {e}")
             ok("Goodbye!")
             sys.exit(0)
 
