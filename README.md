@@ -27,6 +27,7 @@ English | [中文](https://github.com/SafeRL-Lab/nano-claude-code/blob/main/docs
 ---
 
 ## 🔥🔥🔥 News (Pacific Time)
+- 08:00 PM, Apr 03, 2026: **v3.04** — Expanded tool coverage: `NotebookEdit` (edit Jupyter `.ipynb` cells — replace/insert/delete with full JSON round-trip) and `GetDiagnostics` (LSP-style diagnostics via pyright/mypy/flake8/tsc/shellcheck). Also fixed a pre-existing schema-index bug in `_register_builtins` by switching to name-based lookup (**~10.5K** lines of Python).
 - 06:00 PM, Apr 03, 2026: **v3.03** — Task management system (`task/` package): `TaskCreate` / `TaskUpdate` / `TaskGet` / `TaskList` tools with sequential IDs, dependency edges (blocks/blocked_by), metadata, persistence to `.nano_claude/tasks.json`, thread-safe store, `/tasks` REPL command, 37 new tests (**~9500** lines of Python).
 - 02:50 PM, Apr 03, 2026: **v3.02** — Plugin system (`plugin/` package): install/uninstall/enable/disable/update via `/plugin` CLI, recommendation engine (keyword+tag matching), multi-scope (user/project), git-based marketplace. `AskUserQuestion` tool: interactive mid-task user prompts with numbered options and free-text input (**~8500** lines of Python).
 - 10:00 AM, Apr 03, 2026: **v3.01** — MCP (Model Context Protocol) support: `mcp/` package, stdio + SSE + HTTP transports, auto tool discovery, `/mcp` command, 34 new tests (**~7000** lines of Python).
@@ -87,8 +88,8 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 |-----------|--------------------------|---------------------------|
 | Language | TypeScript + React/Ink | Python 3.8+ |
 | Source files | ~1,332 TS/TSX files | 51 Python files |
-| Lines of code | ~283K | ~10.2K |
-| Built-in tools | 44+ | 21 |
+| Lines of code | ~283K | ~10.5K |
+| Built-in tools | 44+ | 23 |
 | Slash commands | 88 | 17 |
 | Model providers | Anthropic only | 7+ (Anthropic · OpenAI · Gemini · Kimi · Qwen · DeepSeek · Ollama · …) |
 | Local models | No | Yes — Ollama, LM Studio, vLLM, any OpenAI-compatible endpoint |
@@ -99,7 +100,7 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 ### Where Claude Code wins
 
 - **UI quality** — React/Ink component tree with streaming rendering, fine-grained diff visualization, and dialog systems.
-- **Tool breadth** — 44 tools including `NotebookEdit`, `LSP Diagnostics`, `RemoteTrigger`, `EnterWorktree`, and more.
+- **Tool breadth** — 44 tools including `RemoteTrigger`, `EnterWorktree`, and more UI-integrated tools.
 - **Enterprise features** — MDM-managed config, team permission sync, OAuth, keychain storage, GrowthBook feature flags.
 - **AI-driven memory extraction** — `extractMemories` service proactively extracts knowledge from conversations without explicit tool calls.
 - **Production reliability** — single distributable `cli.js`, comprehensive test coverage, version-locked releases.
@@ -113,6 +114,8 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 - **Dynamic extensibility** — register new tools at runtime with `register_tool(ToolDef(...))`, install skill packs from git URLs, or wire in any MCP server.
 - **Task dependency graph** — `TaskCreate` / `TaskUpdate` support `blocks` / `blocked_by` edges for structured multi-step planning (not available in Claude Code).
 - **Two-layer context compression** — rule-based snip + AI summarization, configurable via `preserve_last_n_turns`.
+- **Notebook editing** — `NotebookEdit` directly manipulates `.ipynb` JSON (replace/insert/delete cells) with no kernel required.
+- **Diagnostics without LSP server** — `GetDiagnostics` chains pyright → mypy → flake8 → py_compile for Python and tsc/shellcheck for other languages, with zero configuration.
 
 ### Key design differences
 
@@ -147,7 +150,7 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | Multi-provider | Anthropic · OpenAI · Gemini · Kimi · Qwen · Zhipu · DeepSeek · Ollama · LM Studio · Custom endpoint |
 | Interactive REPL | readline history, Tab-complete slash commands |
 | Agent loop | Streaming API + automatic tool-use loop |
-| 21 built-in tools | Read · Write · Edit · Bash · Glob · Grep · WebFetch · WebSearch · MemorySave · MemoryDelete · MemorySearch · MemoryList · Agent · SendMessage · CheckAgentResult · ListAgentTasks · ListAgentTypes · Skill · SkillList · AskUserQuestion · *(MCP + plugin tools auto-added at startup)* |
+| 23 built-in tools | Read · Write · Edit · Bash · Glob · Grep · WebFetch · WebSearch · **NotebookEdit** · **GetDiagnostics** · MemorySave · MemoryDelete · MemorySearch · MemoryList · Agent · SendMessage · CheckAgentResult · ListAgentTasks · ListAgentTypes · Skill · SkillList · AskUserQuestion · TaskCreate/Update/Get/List · *(MCP + plugin tools auto-added at startup)* |
 | MCP integration | Connect any MCP server (stdio/SSE/HTTP), tools auto-registered and callable by Claude |
 | Plugin system | Install/uninstall/enable/disable/update plugins from git URLs or local paths; multi-scope (user/project); recommendation engine |
 | AskUserQuestion | Claude can pause and ask the user a clarifying question mid-task, with optional numbered choices |
@@ -681,6 +684,13 @@ Keys are saved to `~/.nano_claude/config.json` and loaded automatically on next 
 | `Grep` | Regex search in files (uses ripgrep if available) | `pattern`, `path`, `glob`, `output_mode` |
 | `WebFetch` | Fetch and extract text from URL | `url`, `prompt` |
 | `WebSearch` | Search the web via DuckDuckGo | `query` |
+
+### Notebook & Diagnostics Tools
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `NotebookEdit` | Edit a Jupyter notebook (`.ipynb`) cell | `notebook_path`, `new_source`, `cell_id`, `cell_type`, `edit_mode` (`replace`/`insert`/`delete`) |
+| `GetDiagnostics` | Get LSP-style diagnostics for a source file (pyright/mypy/flake8 for Python; tsc/eslint for JS/TS; shellcheck for shell) | `file_path`, `language` (optional override) |
 
 ### Memory Tools
 
@@ -1227,7 +1237,7 @@ nano_claude_code/
 ├── nano_claude.py        # Entry point: REPL + slash commands + diff rendering
 ├── agent.py              # Agent loop: streaming, tool dispatch, compaction
 ├── providers.py          # Multi-provider: Anthropic, OpenAI-compat streaming
-├── tools.py              # Core tools (Read/Write/Edit/Bash/Glob/Grep/Web) + registry wiring
+├── tools.py              # Core tools (Read/Write/Edit/Bash/Glob/Grep/Web/NotebookEdit/GetDiagnostics) + registry wiring
 ├── tool_registry.py      # Tool plugin registry: register, lookup, execute
 ├── compaction.py         # Context compression: snip + auto-summarize
 ├── context.py            # System prompt builder: CLAUDE.md + git + memory
@@ -1263,7 +1273,7 @@ nano_claude_code/
 │   ├── config.py         # Load .mcp.json (project) + ~/.nano_claude/mcp.json (user)
 │   └── tools.py          # Auto-discover + register MCP tools into tool_registry
 │
-└── tests/                # 135 unit tests
+└── tests/                # 210+ unit tests
     ├── test_mcp.py
     ├── test_memory.py
     ├── test_skills.py

@@ -1,4 +1,5 @@
 """Tool definitions and implementations for nano claude."""
+import json
 import os
 import re
 import glob as _glob
@@ -191,6 +192,71 @@ TOOL_SCHEMAS = [
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    },
+    {
+        "name": "NotebookEdit",
+        "description": (
+            "Edit a Jupyter notebook (.ipynb) cell. "
+            "Supports replace (modify existing cell), insert (add new cell after cell_id), "
+            "and delete (remove cell) operations. "
+            "Read the notebook with the Read tool first to see cell IDs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "notebook_path": {
+                    "type": "string",
+                    "description": "Absolute path to the .ipynb notebook file",
+                },
+                "new_source": {
+                    "type": "string",
+                    "description": "New source code/text for the cell",
+                },
+                "cell_id": {
+                    "type": "string",
+                    "description": (
+                        "ID of the cell to edit. For insert, the new cell is inserted after this cell "
+                        "(or at the beginning if omitted). Use 'cell-N' (0-indexed) if no IDs are set."
+                    ),
+                },
+                "cell_type": {
+                    "type": "string",
+                    "enum": ["code", "markdown"],
+                    "description": "Cell type. Required for insert; defaults to current type for replace.",
+                },
+                "edit_mode": {
+                    "type": "string",
+                    "enum": ["replace", "insert", "delete"],
+                    "description": "replace (default) / insert / delete",
+                },
+            },
+            "required": ["notebook_path", "new_source"],
+        },
+    },
+    {
+        "name": "GetDiagnostics",
+        "description": (
+            "Get LSP-style diagnostics (errors, warnings, hints) for a source file. "
+            "Uses pyright/mypy/flake8 for Python, tsc for TypeScript/JavaScript, "
+            "and shellcheck for shell scripts. Returns structured diagnostic output."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the file to diagnose",
+                },
+                "language": {
+                    "type": "string",
+                    "description": (
+                        "Override auto-detected language: python, javascript, typescript, "
+                        "shellscript. Omit to auto-detect from file extension."
+                    ),
+                },
+            },
+            "required": ["file_path"],
         },
     },
     {
@@ -435,6 +501,225 @@ def _websearch(query: str) -> str:
         return f"Error: {e}"
 
 
+# ── NotebookEdit implementation ────────────────────────────────────────────
+
+def _parse_cell_id(cell_id: str) -> int | None:
+    """Convert 'cell-N' shorthand to integer index; return None if not that form."""
+    m = re.fullmatch(r"cell-(\d+)", cell_id)
+    return int(m.group(1)) if m else None
+
+
+def _notebook_edit(
+    notebook_path: str,
+    new_source: str,
+    cell_id: str = None,
+    cell_type: str = None,
+    edit_mode: str = "replace",
+) -> str:
+    p = Path(notebook_path)
+    if p.suffix != ".ipynb":
+        return "Error: file must be a Jupyter notebook (.ipynb)"
+    if not p.exists():
+        return f"Error: notebook not found: {notebook_path}"
+
+    try:
+        nb = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        return f"Error: notebook is not valid JSON: {e}"
+
+    cells = nb.get("cells", [])
+
+    # Resolve cell index
+    def _resolve_index(cid: str) -> int | None:
+        # Try exact id match first
+        for i, c in enumerate(cells):
+            if c.get("id") == cid:
+                return i
+        # Fallback: cell-N
+        idx = _parse_cell_id(cid)
+        if idx is not None and 0 <= idx < len(cells):
+            return idx
+        return None
+
+    if edit_mode == "replace":
+        if not cell_id:
+            return "Error: cell_id is required for replace"
+        idx = _resolve_index(cell_id)
+        if idx is None:
+            return f"Error: cell '{cell_id}' not found"
+        target = cells[idx]
+        target["source"] = new_source
+        if cell_type and cell_type != target.get("cell_type"):
+            target["cell_type"] = cell_type
+        if target.get("cell_type") == "code":
+            target["execution_count"] = None
+            target["outputs"] = []
+
+    elif edit_mode == "insert":
+        if not cell_type:
+            return "Error: cell_type is required for insert ('code' or 'markdown')"
+        # Determine nb format for cell ids
+        nbformat = nb.get("nbformat", 4)
+        nbformat_minor = nb.get("nbformat_minor", 0)
+        use_ids = nbformat > 4 or (nbformat == 4 and nbformat_minor >= 5)
+        new_id = None
+        if use_ids:
+            import random, string
+            new_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+        if cell_type == "markdown":
+            new_cell = {"cell_type": "markdown", "source": new_source, "metadata": {}}
+        else:
+            new_cell = {
+                "cell_type": "code",
+                "source": new_source,
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+            }
+        if use_ids and new_id:
+            new_cell["id"] = new_id
+
+        if cell_id:
+            idx = _resolve_index(cell_id)
+            if idx is None:
+                return f"Error: cell '{cell_id}' not found"
+            cells.insert(idx + 1, new_cell)
+        else:
+            cells.insert(0, new_cell)
+        nb["cells"] = cells
+        cell_id = new_id or cell_id
+
+    elif edit_mode == "delete":
+        if not cell_id:
+            return "Error: cell_id is required for delete"
+        idx = _resolve_index(cell_id)
+        if idx is None:
+            return f"Error: cell '{cell_id}' not found"
+        cells.pop(idx)
+        nb["cells"] = cells
+        p.write_text(json.dumps(nb, indent=1, ensure_ascii=False), encoding="utf-8")
+        return f"Deleted cell '{cell_id}' from {notebook_path}"
+    else:
+        return f"Error: unknown edit_mode '{edit_mode}' — use replace, insert, or delete"
+
+    nb["cells"] = cells
+    p.write_text(json.dumps(nb, indent=1, ensure_ascii=False), encoding="utf-8")
+    return f"NotebookEdit({edit_mode}) applied to cell '{cell_id}' in {notebook_path}"
+
+
+# ── GetDiagnostics implementation ──────────────────────────────────────────
+
+def _detect_language(file_path: str) -> str:
+    ext = Path(file_path).suffix.lower()
+    return {
+        ".py":   "python",
+        ".js":   "javascript",
+        ".mjs":  "javascript",
+        ".cjs":  "javascript",
+        ".ts":   "typescript",
+        ".tsx":  "typescript",
+        ".sh":   "shellscript",
+        ".bash": "shellscript",
+        ".zsh":  "shellscript",
+    }.get(ext, "unknown")
+
+
+def _run_quietly(cmd: list[str], cwd: str | None = None, timeout: int = 30) -> tuple[int, str]:
+    """Run a command, return (returncode, combined_output)."""
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+            cwd=cwd or os.getcwd(),
+        )
+        out = (r.stdout + ("\n" + r.stderr if r.stderr else "")).strip()
+        return r.returncode, out
+    except FileNotFoundError:
+        return -1, f"(command not found: {cmd[0]})"
+    except subprocess.TimeoutExpired:
+        return -1, f"(timed out after {timeout}s)"
+    except Exception as e:
+        return -1, f"(error: {e})"
+
+
+def _get_diagnostics(file_path: str, language: str = None) -> str:
+    p = Path(file_path)
+    if not p.exists():
+        return f"Error: file not found: {file_path}"
+
+    lang = language or _detect_language(file_path)
+    abs_path = str(p.resolve())
+    results: list[str] = []
+
+    if lang == "python":
+        # Try pyright first (most comprehensive)
+        rc, out = _run_quietly(["pyright", "--outputjson", abs_path])
+        if rc != -1:
+            try:
+                data = json.loads(out)
+                diags = data.get("generalDiagnostics", [])
+                if not diags:
+                    results.append("pyright: no diagnostics")
+                else:
+                    lines = [f"pyright ({len(diags)} issue(s)):"]
+                    for d in diags[:50]:
+                        rng = d.get("range", {}).get("start", {})
+                        ln = rng.get("line", 0) + 1
+                        ch = rng.get("character", 0) + 1
+                        sev = d.get("severity", "error")
+                        msg = d.get("message", "")
+                        rule = d.get("rule", "")
+                        lines.append(f"  {ln}:{ch} [{sev}] {msg}" + (f" ({rule})" if rule else ""))
+                    results.append("\n".join(lines))
+            except json.JSONDecodeError:
+                if out:
+                    results.append(f"pyright:\n{out[:3000]}")
+        else:
+            # Try mypy
+            rc2, out2 = _run_quietly(["mypy", "--no-error-summary", abs_path])
+            if rc2 != -1:
+                results.append(f"mypy:\n{out2[:3000]}" if out2 else "mypy: no diagnostics")
+            else:
+                # Fall back to flake8
+                rc3, out3 = _run_quietly(["flake8", abs_path])
+                if rc3 != -1:
+                    results.append(f"flake8:\n{out3[:3000]}" if out3 else "flake8: no diagnostics")
+                else:
+                    # Last resort: py_compile syntax check
+                    rc4, out4 = _run_quietly(["python3", "-m", "py_compile", abs_path])
+                    if out4:
+                        results.append(f"py_compile (syntax check):\n{out4}")
+                    else:
+                        results.append("py_compile: syntax OK (no further tools available)")
+
+    elif lang in ("javascript", "typescript"):
+        # Try tsc
+        rc, out = _run_quietly(["tsc", "--noEmit", "--strict", abs_path])
+        if rc != -1:
+            results.append(f"tsc:\n{out[:3000]}" if out else "tsc: no errors")
+        else:
+            # Try eslint
+            rc2, out2 = _run_quietly(["eslint", abs_path])
+            if rc2 != -1:
+                results.append(f"eslint:\n{out2[:3000]}" if out2 else "eslint: no issues")
+            else:
+                results.append("No TypeScript/JavaScript checker found (install tsc or eslint)")
+
+    elif lang == "shellscript":
+        rc, out = _run_quietly(["shellcheck", abs_path])
+        if rc != -1:
+            results.append(f"shellcheck:\n{out[:3000]}" if out else "shellcheck: no issues")
+        else:
+            # Basic bash syntax check
+            rc2, out2 = _run_quietly(["bash", "-n", abs_path])
+            results.append(f"bash -n (syntax check):\n{out2}" if out2 else "bash -n: syntax OK")
+
+    else:
+        results.append(f"No diagnostic tool available for language: {lang or 'unknown'} (ext: {Path(file_path).suffix})")
+
+    return "\n\n".join(results) if results else "(no diagnostics output)"
+
+
 # ── AskUserQuestion implementation ────────────────────────────────────────
 
 def _ask_user_question(
@@ -577,6 +862,9 @@ def execute_tool(
         if permission_mode != "accept-all" and not _is_safe_bash(cmd):
             if not _check(f"Bash: {cmd}"):
                 return "Denied: user rejected bash command"
+    elif name == "NotebookEdit":
+        if not _check(f"Edit notebook {inputs['notebook_path']}"):
+            return "Denied: user rejected notebook edit operation"
 
     return _registry_execute(name, inputs, cfg)
 
@@ -584,46 +872,49 @@ def execute_tool(
 # ── Register built-in tools with the plugin registry ─────────────────────
 
 def _register_builtins() -> None:
-    """Register all 8 built-in tools into the central registry."""
+    """Register all built-in tools into the central registry."""
+    # Use a name → schema map so ordering changes in TOOL_SCHEMAS never break this.
+    _schemas = {s["name"]: s for s in TOOL_SCHEMAS}
+
     _tool_defs = [
         ToolDef(
             name="Read",
-            schema=TOOL_SCHEMAS[0],
+            schema=_schemas["Read"],
             func=lambda p, c: _read(**p),
             read_only=True,
             concurrent_safe=True,
         ),
         ToolDef(
             name="Write",
-            schema=TOOL_SCHEMAS[1],
+            schema=_schemas["Write"],
             func=lambda p, c: _write(**p),
             read_only=False,
             concurrent_safe=False,
         ),
         ToolDef(
             name="Edit",
-            schema=TOOL_SCHEMAS[2],
+            schema=_schemas["Edit"],
             func=lambda p, c: _edit(**p),
             read_only=False,
             concurrent_safe=False,
         ),
         ToolDef(
             name="Bash",
-            schema=TOOL_SCHEMAS[3],
+            schema=_schemas["Bash"],
             func=lambda p, c: _bash(p["command"], p.get("timeout", 30)),
             read_only=False,
             concurrent_safe=False,
         ),
         ToolDef(
             name="Glob",
-            schema=TOOL_SCHEMAS[4],
+            schema=_schemas["Glob"],
             func=lambda p, c: _glob(p["pattern"], p.get("path")),
             read_only=True,
             concurrent_safe=True,
         ),
         ToolDef(
             name="Grep",
-            schema=TOOL_SCHEMAS[5],
+            schema=_schemas["Grep"],
             func=lambda p, c: _grep(
                 p["pattern"], p.get("path"), p.get("glob"),
                 p.get("output_mode", "files_with_matches"),
@@ -635,21 +926,44 @@ def _register_builtins() -> None:
         ),
         ToolDef(
             name="WebFetch",
-            schema=TOOL_SCHEMAS[6],
+            schema=_schemas["WebFetch"],
             func=lambda p, c: _webfetch(p["url"], p.get("prompt")),
             read_only=True,
             concurrent_safe=True,
         ),
         ToolDef(
             name="WebSearch",
-            schema=TOOL_SCHEMAS[7],
+            schema=_schemas["WebSearch"],
             func=lambda p, c: _websearch(p["query"]),
             read_only=True,
             concurrent_safe=True,
         ),
         ToolDef(
+            name="NotebookEdit",
+            schema=_schemas["NotebookEdit"],
+            func=lambda p, c: _notebook_edit(
+                p["notebook_path"],
+                p["new_source"],
+                p.get("cell_id"),
+                p.get("cell_type"),
+                p.get("edit_mode", "replace"),
+            ),
+            read_only=False,
+            concurrent_safe=False,
+        ),
+        ToolDef(
+            name="GetDiagnostics",
+            schema=_schemas["GetDiagnostics"],
+            func=lambda p, c: _get_diagnostics(
+                p["file_path"],
+                p.get("language"),
+            ),
+            read_only=True,
+            concurrent_safe=True,
+        ),
+        ToolDef(
             name="AskUserQuestion",
-            schema=TOOL_SCHEMAS[8],
+            schema=_schemas["AskUserQuestion"],
             func=lambda p, c: _ask_user_question(
                 p["question"],
                 p.get("options"),
