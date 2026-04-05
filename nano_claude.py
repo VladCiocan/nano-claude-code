@@ -341,87 +341,139 @@ def cmd_config(args: str, _state, config) -> bool:
 
 def cmd_save(args: str, state, _config) -> bool:
     from config import SESSIONS_DIR
-    fname = args.strip() or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    path = Path(fname) if "/" in fname else SESSIONS_DIR / fname
-    data = {
-        "messages": [
-            m if not isinstance(m.get("content"), list) else
-            {**m, "content": [
-                b if isinstance(b, dict) else b.model_dump()
-                for b in m["content"]
-            ]}
-            for m in state.messages
-        ],
-        "turn_count": state.turn_count,
-        "total_input_tokens": state.total_input_tokens,
-        "total_output_tokens": state.total_output_tokens,
-    }
+    import uuid
+    sid   = uuid.uuid4().hex[:8]
+    ts    = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = args.strip() or f"session_{ts}_{sid}.json"
+    path  = Path(fname) if "/" in fname else SESSIONS_DIR / fname
+    data  = _build_session_data(state, session_id=sid)
     path.write_text(json.dumps(data, indent=2, default=str))
-    ok(f"Session saved to {path}")
+    ok(f"Session saved → {path}  (id: {sid})"  )
     return True
 
-def save_latest(args: str, state, _config) -> bool:
-    from config import MR_SESSION_DIR
-    fname = "session_latest.json"
-    path = Path(fname) if "/" in fname else MR_SESSION_DIR / fname
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = {
-        "messages": [
-            m if not isinstance(m.get("content"), list) else
-            {**m, "content": [
-                b if isinstance(b, dict) else b.model_dump()
-                for b in m["content"]
-            ]}
-            for m in state.messages
-        ],
-        "turn_count": state.turn_count,
-        "total_input_tokens": state.total_input_tokens,
-        "total_output_tokens": state.total_output_tokens,
-    }
-    path.write_text(json.dumps(data, indent=2, default=str))
-    ok(f"Session saved to {path}")
+def save_latest(args: str, state, config_or_none=None) -> bool:
+    """Save session on exit: session_latest.json + daily/ copy + append to history.json."""
+    from config import MR_SESSION_DIR, DAILY_DIR, SESSION_HIST_FILE
+    if not state.messages:
+        return True
+
+    cfg = config_or_none or {}
+    daily_limit   = cfg.get("session_daily_limit",   5)
+    history_limit = cfg.get("session_history_limit", 100)
+
+    import uuid
+    now = datetime.now()
+    sid = uuid.uuid4().hex[:8]
+    ts  = now.strftime("%H%M%S")
+    date_str = now.strftime("%Y-%m-%d")
+    data = _build_session_data(state, session_id=sid)
+    payload = json.dumps(data, indent=2, default=str)
+
+    # 1. session_latest.json — always overwrite for quick /resume
+    MR_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    latest_path = MR_SESSION_DIR / "session_latest.json"
+    latest_path.write_text(payload)
+
+    # 2. daily/YYYY-MM-DD/session_HHMMSS_sid.json
+    day_dir = DAILY_DIR / date_str
+    day_dir.mkdir(parents=True, exist_ok=True)
+    daily_path = day_dir / f"session_{ts}_{sid}.json"
+    daily_path.write_text(payload)
+
+    # Prune daily folder: keep only the latest `daily_limit` files
+    daily_files = sorted(day_dir.glob("session_*.json"))
+    for old in daily_files[:-daily_limit]:
+        old.unlink(missing_ok=True)
+
+    # 3. Append to history.json (master file)
+    if SESSION_HIST_FILE.exists():
+        try:
+            hist = json.loads(SESSION_HIST_FILE.read_text())
+        except Exception:
+            hist = {"total_turns": 0, "sessions": []}
+    else:
+        hist = {"total_turns": 0, "sessions": []}
+
+    hist["sessions"].append(data)
+    hist["total_turns"] = sum(s.get("turn_count", 0) for s in hist["sessions"])
+
+    # Prune history: keep only the latest `history_limit` sessions
+    if len(hist["sessions"]) > history_limit:
+        hist["sessions"] = hist["sessions"][-history_limit:]
+
+    SESSION_HIST_FILE.write_text(json.dumps(hist, indent=2, default=str))
+
+    ok(f"Session saved → {latest_path}")
+    ok(f"             → {daily_path}  (id: {sid})")
+    ok(f"  history.json: {len(hist['sessions'])} sessions / {hist['total_turns']} total turns")
     return True
 def cmd_load(args: str, state, _config) -> bool:
-    from config import SESSIONS_DIR, MR_SESSION_DIR
-    
+    from config import SESSIONS_DIR, MR_SESSION_DIR, DAILY_DIR
+
     path = None
     if not args.strip():
-        # List available sessions
-        sessions = sorted(SESSIONS_DIR.glob("*.json"))
-        if MR_SESSION_DIR.exists():
-            sessions.extend(sorted(MR_SESSION_DIR.glob("*.json")))
-        
+        # Collect sessions from daily/ folders, newest first
+        sessions: list[Path] = []
+        if DAILY_DIR.exists():
+            for day_dir in sorted(DAILY_DIR.iterdir(), reverse=True):
+                if day_dir.is_dir():
+                    sessions.extend(sorted(day_dir.glob("session_*.json"), reverse=True))
+        # Fall back to legacy mr_sessions/ if daily/ is empty
+        if not sessions and MR_SESSION_DIR.exists():
+            sessions = [s for s in sorted(MR_SESSION_DIR.glob("*.json"), reverse=True)
+                        if s.name != "session_latest.json"]
+        # Also include manually /save'd sessions from SESSIONS_DIR root
+        sessions.extend(sorted(SESSIONS_DIR.glob("session_*.json"), reverse=True))
+
         if not sessions:
             info("No saved sessions found.")
             return True
-            
+
         print(clr("  Select a session to load:", "cyan", "bold"))
+        prev_date = None
         for i, s in enumerate(sessions):
-            print(clr(f"  [{i+1}] ", "yellow") + s.name)
-            
+            # Group by date header
+            date_label = s.parent.name if s.parent.name != "mr_sessions" else ""
+            if date_label and date_label != prev_date:
+                print(clr(f"\n  ── {date_label} ──", "dim"))
+                prev_date = date_label
+
+            label = s.name
+            try:
+                meta     = json.loads(s.read_text())
+                saved_at = meta.get("saved_at", "")[-8:]   # HH:MM:SS
+                sid      = meta.get("session_id", "")
+                turns    = meta.get("turn_count", "?")
+                label    = f"{saved_at}  id:{sid}  turns:{turns}  {s.name}"
+            except Exception:
+                pass
+            print(clr(f"  [{i+1:2d}] ", "yellow") + label)
+
         print()
         ans = input(clr("  Enter number (or press Enter to cancel) > ", "cyan")).strip()
         if not ans.isdigit():
             info("  Cancelled.")
             return True
-            
+
         idx = int(ans) - 1
         if idx < 0 or idx >= len(sessions):
             err("Invalid selection.")
             return True
-            
+
         path = sessions[idx]
-        
+
     if not path:
         fname = args.strip()
         path = Path(fname) if "/" in fname or "\\" in fname else SESSIONS_DIR / fname
         if not path.exists() and ("/" not in fname and "\\" not in fname):
-            alt_path = MR_SESSION_DIR / fname
-            if alt_path.exists():
-                path = alt_path
-                
+            for alt in [MR_SESSION_DIR / fname,
+                        *(d / fname for d in DAILY_DIR.iterdir()
+                          if DAILY_DIR.exists() and d.is_dir())]:
+                if alt.exists():
+                    path = alt
+                    break
         if not path.exists():
-            err(f"File not found: {path} (checked {SESSIONS_DIR} and {MR_SESSION_DIR})")
+            err(f"File not found: {path}")
             return True
         
     data = json.loads(path.read_text())
@@ -546,9 +598,12 @@ def cmd_cwd(args: str, _state, _config) -> bool:
             err(str(e))
     return True
 
-def _build_session_data(state) -> dict:
+def _build_session_data(state, session_id: str | None = None) -> dict:
     """Serialize current conversation state to a JSON-serializable dict."""
+    import uuid
     return {
+        "session_id": session_id or uuid.uuid4().hex[:8],
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "messages": [
             m if not isinstance(m.get("content"), list) else
             {**m, "content": [
@@ -679,7 +734,7 @@ def cmd_cloudsave(args: str, state, config) -> bool:
 
 def cmd_exit(_args: str, _state, _config) -> bool:
     ok("Goodbye!")
-    save_latest("", _state, _config)  # auto-save to mr_sessions for easy resuming
+    save_latest("", _state, _config)
     # Auto cloud-sync if enabled
     if _config.get("cloudsave_auto") and _config.get("gist_token") and _state.messages:
         info("Auto cloud-sync: uploading session to Gist…")
