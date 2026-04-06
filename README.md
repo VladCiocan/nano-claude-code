@@ -70,6 +70,12 @@ English | [中文](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/READM
 ## 🔥🔥🔥 News (Pacific Time)
 
 
+- Apr 06, 2026 (**v3.05.6**): **Checkpoint system, plan mode, compact, and utility commands** (contributed by [@mxh1999](https://github.com/mxh1999), merged from [PR #19](https://github.com/SafeRL-Lab/clawspring/pull/19))
+  - **Checkpoint system** (`checkpoint/` package): auto-snapshots conversation state and file changes after every turn. `/checkpoint` lists all snapshots; `/checkpoint <id>` rewinds both files and conversation history to any previous state; `/checkpoint clear` removes all snapshots for the session. `/rewind` is an alias. 100-snapshot sliding window; initial snapshot captured at session start. Throttling: skips when nothing changed. File backups use copy-on-write; snapshots capture post-edit state.
+  - **Plan mode**: `/plan <desc>` enters a read-only analysis mode — Claude may only read the codebase and write to a dedicated plan file (`.nano_claude/plans/<session_id>.md`). All other writes are silently blocked with a helpful message. `/plan` shows the current plan; `/plan done` exits plan mode and restores original permissions; `/plan status` reports whether plan mode is active. Two new agent tools — `EnterPlanMode` and `ExitPlanMode` — let Claude autonomously enter and exit plan mode for complex multi-file tasks; both are auto-approved in all permission modes.
+  - **`/compact [focus]`**: manually trigger conversation compaction at any time. An optional focus string guides the LLM summarizer on what context to preserve. Auto-compact and manual compact both restore plan file context after compaction.
+  - **Utility commands**: `/init` creates a `CLAUDE.md` template in the current directory; `/export [filename]` exports the conversation as Markdown (default) or JSON; `/copy` copies the last assistant response to the clipboard (Windows/macOS/Linux); `/status` shows version, model, provider, permissions, session ID, token usage, and context %; `/doctor` diagnoses installation health (Python version, git, API key + live connectivity test, optional deps, CLAUDE.md presence, checkpoint disk usage, permission mode).
+
 - Apr 06, 2026 (**v3.05.5**): **Project renamed from Nano Claude Code to ClawSpring**
   - The project has been rebranded from **Nano Claude Code** to **ClawSpring** — a more distinctive name that captures the spirit of the tool: a sharp, agile coding assistant. The `Cl` in ClawSpring is a subtle nod to Claude.
   - CLI command: `nano_claude` → `clawspring`
@@ -156,6 +162,8 @@ ClawSpring: **A Lightweight** and **Easy-to-Use** Python Reimplementation of Cla
   * [SSJ Developer Mode](#ssj-developer-mode)
   * [Telegram Bridge](#telegram-bridge)
   * [Proactive Background Monitoring](#proactive-background-monitoring)
+  * [Checkpoint System](#checkpoint-system)
+  * [Plan Mode](#plan-mode)
   * [Context Compression](#context-compression)
   * [Diff View](#diff-view)
   * [CLAUDE.md Support](#claudemd-support)
@@ -180,8 +188,8 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | Language | TypeScript + React/Ink | Python 3.8+ |
 | Source files | ~1,332 TS/TSX files | 51 Python files |
 | Lines of code | ~283K | ~12K |
-| Built-in tools | 44+ | 25 |
-| Slash commands | 88 | 23 |
+| Built-in tools | 44+ | 27 |
+| Slash commands | 88 | 36 |
 | Voice input | Proprietary Anthropic WebSocket (OAuth required) | Local Whisper / OpenAI API — works offline, no subscription |
 | Model providers | Anthropic only | 7+ (Anthropic · OpenAI · Gemini · Kimi · Qwen · DeepSeek · Ollama · …) |
 | Local models | No | Yes — Ollama, LM Studio, vLLM, any OpenAI-compatible endpoint |
@@ -220,6 +228,8 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 - **Native Ollama vision** — `/image [prompt]` captures the clipboard and sends it to local vision models (llava, gemma4, llama3.2-vision) via Ollama's native image API. No cloud required.
 - **Reliable multi-line paste** — Bracketed Paste Mode (`ESC[?2004h`) collects any pasted text — code blocks, multi-paragraph prompts, long diffs — as a single turn with zero latency and no blank-line artifacts.
 - **Rich Tab completion** — Tab after `/` shows all commands with one-line descriptions and subcommand hints; subcommand Tab-complete works for `/mcp`, `/plugin`, `/tasks`, `/cloudsave`, and more.
+- **Checkpoint & rewind** — `/checkpoint` lists all auto-snapshots of conversation + file state; `/checkpoint <id>` rewinds both files and history to any earlier point in the session.
+- **Plan mode** — `/plan <desc>` (or the `EnterPlanMode` tool) puts Claude into a structured read-only analysis phase; only the plan file is writable. Claude writes a detailed plan, then `/plan done` restores full write permissions for implementation.
 
 ---
 
@@ -316,7 +326,7 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | Multi-provider | Anthropic · OpenAI · Gemini · Kimi · Qwen · Zhipu · DeepSeek · Ollama · LM Studio · Custom endpoint |
 | Interactive REPL | readline history, Tab-complete slash commands with descriptions + subcommand hints; Bracketed Paste Mode for reliable multi-line paste |
 | Agent loop | Streaming API + automatic tool-use loop |
-| 25 built-in tools | Read · Write · Edit · Bash · Glob · Grep · WebFetch · WebSearch · **NotebookEdit** · **GetDiagnostics** · MemorySave · MemoryDelete · MemorySearch · MemoryList · Agent · SendMessage · CheckAgentResult · ListAgentTasks · ListAgentTypes · Skill · SkillList · AskUserQuestion · TaskCreate/Update/Get/List · **SleepTimer** · *(MCP + plugin tools auto-added at startup)* |
+| 27 built-in tools | Read · Write · Edit · Bash · Glob · Grep · WebFetch · WebSearch · **NotebookEdit** · **GetDiagnostics** · MemorySave · MemoryDelete · MemorySearch · MemoryList · Agent · SendMessage · CheckAgentResult · ListAgentTasks · ListAgentTypes · Skill · SkillList · AskUserQuestion · TaskCreate/Update/Get/List · **SleepTimer** · **EnterPlanMode** · **ExitPlanMode** · *(MCP + plugin tools auto-added at startup)* |
 | MCP integration | Connect any MCP server (stdio/SSE/HTTP), tools auto-registered and callable by Claude |
 | Plugin system | Install/uninstall/enable/disable/update plugins from git URLs or local paths; multi-scope (user/project); recommendation engine |
 | AskUserQuestion | Claude can pause and ask the user a clarifying question mid-task, with optional numbered choices |
@@ -327,8 +337,10 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | Multi-agent | Spawn typed sub-agents (coder/reviewer/researcher/…), git worktree isolation, background mode |
 | Skills | Built-in `/commit` · `/review` + custom markdown skills with argument substitution and fork/inline execution |
 | Plugin tools | Register custom tools via `tool_registry.py` |
-| Permission system | `auto` / `accept-all` / `manual` modes |
-| 19 slash commands | `/model` · `/config` · `/save` · `/cost` · `/memory` · `/skills` · `/agents` · `/voice` · `/proactive` · … |
+| Permission system | `auto` / `accept-all` / `manual` / `plan` modes |
+| Checkpoints | Auto-snapshot conversation + file state after each turn; `/checkpoint` to list, `/checkpoint <id>` to rewind; `/rewind` alias; 100-snapshot sliding window |
+| Plan mode | `/plan <desc>` enters read-only analysis mode; Claude writes only to the plan file; `EnterPlanMode` / `ExitPlanMode` agent tools for autonomous planning |
+| 36 slash commands | `/model` · `/config` · `/save` · `/cost` · `/memory` · `/skills` · `/agents` · `/voice` · `/proactive` · `/checkpoint` · `/plan` · `/compact` · `/status` · `/doctor` · … |
 | Voice input | Record → transcribe → auto-submit. Backends: `sounddevice` / `arecord` / SoX + `faster-whisper` / `openai-whisper` / OpenAI API. Works fully offline. |
 | Brainstorm | `/brainstorm [topic]` generates N expert personas suited to the topic (2–100, default 5, chosen interactively), runs an iterative debate, saves results to `brainstorm_outputs/`, and synthesizes a Master Plan + auto-generates `brainstorm_outputs/todo_list.txt`. |
 | SSJ Developer Mode | `/ssj` opens a persistent interactive power menu with 10 shortcuts: Brainstorm, TODO viewer, Worker, Expert Debate, Propose, Review, Readme, Commit, Scan, Promote. Stays open between actions; `/command` passthrough supported. Debate shows animated per-round spinner and saves result next to the debated file. |
@@ -833,6 +845,22 @@ Type `/` and press **Tab** to see all commands with descriptions. Continue typin
 | `/telegram` | Start the bridge using previously saved token + chat_id |
 | `/telegram stop` | Stop the Telegram bridge |
 | `/telegram status` | Show whether the bridge is running and the configured chat_id |
+| `/checkpoint` | List all checkpoints (snapshots) for the current session |
+| `/checkpoint <id>` | Rewind to checkpoint — restore files and conversation to that snapshot |
+| `/checkpoint clear` | Delete all checkpoints for the current session |
+| `/rewind` | Alias for `/checkpoint` |
+| `/plan <description>` | Enter plan mode: read-only analysis, writes only to the plan file |
+| `/plan` | Show current plan file contents |
+| `/plan done` | Exit plan mode and restore original permissions |
+| `/plan status` | Show whether plan mode is active |
+| `/compact` | Manually compact the conversation (same as auto-compact but user-triggered) |
+| `/compact <focus>` | Compact with focus instructions (e.g. `/compact keep the auth refactor context`) |
+| `/init` | Create a `CLAUDE.md` template in the current working directory |
+| `/export` | Export the conversation as a Markdown file to `.nano_claude/exports/` |
+| `/export <filename>` | Export as Markdown or JSON (detected by `.json` extension) |
+| `/copy` | Copy the last assistant response to the clipboard |
+| `/status` | Show version, model, provider, permissions, session ID, token usage, and context % |
+| `/doctor` | Diagnose installation health: Python, git, API key, optional deps, CLAUDE.md, checkpoint disk usage |
 | `/exit` / `/quit` | Exit |
 
 **Switching models inside a session:**
@@ -910,6 +938,7 @@ Keys are saved to `~/.clawspring/config.json` and loaded automatically on next l
 | `auto` (default) | Read-only operations always allowed. Prompts before Bash commands and file writes. |
 | `accept-all` | Never prompts. All operations proceed automatically. |
 | `manual` | Prompts before every single operation, including reads. |
+| `plan` | Read-only analysis mode. Only the plan file (`.nano_claude/plans/`) is writable. Entered via `/plan <desc>` or the `EnterPlanMode` tool. |
 
 **When prompted:**
 
@@ -1872,6 +1901,112 @@ Duration suffix: `s` = seconds, `m` = minutes, `h` = hours. Plain integer = seco
 
 ---
 
+## Checkpoint System
+
+ClawSpring automatically snapshots your conversation and any edited files after every turn, so you can always rewind to an earlier state.
+
+### How it works
+
+- **Auto-snapshot** — after each turn, the checkpoint system saves the current conversation messages, token counts, and a copy-on-write backup of every file that was written or edited that turn.
+- **100-snapshot sliding window** — older snapshots are automatically evicted when the limit is reached.
+- **Throttling** — if nothing changed (no new messages, no file edits) since the last snapshot, the snapshot is skipped.
+- **Initial snapshot** — captured at session start, so you can always rewind to a clean slate.
+- **Storage** — `~/.nano_claude/checkpoints/<session_id>/` (snapshots metadata + backup files).
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `/checkpoint` | List all snapshots for the current session |
+| `/checkpoint <id>` | Rewind: restore files to their state at snapshot `<id>` and trim conversation to that point |
+| `/checkpoint clear` | Delete all snapshots for the current session |
+| `/rewind` | Alias for `/checkpoint` |
+
+### Example
+
+```
+[myproject] ❯ /checkpoint
+  Checkpoints (4 total):
+  #1  [turn 0] 14:02:11  "(initial state)"           0 files
+  #2  [turn 1] 14:03:45  "Create app.py"              1 file
+  #3  [turn 2] 14:05:12  "Add error handling"         1 file
+  #4  [turn 3] 14:06:30  "Explain the code"           1 file
+
+[myproject] ❯ /checkpoint 2
+  Rewound to checkpoint #2 (turn 1)
+  Restored: app.py
+  Conversation trimmed to 2 messages.
+```
+
+---
+
+## Plan Mode
+
+Plan mode is a structured workflow for tackling complex, multi-file tasks: Claude first analyses the codebase in a read-only phase and writes an explicit plan, then the user approves before implementation begins.
+
+### How it works
+
+In plan mode:
+- **Only reads** are permitted (`Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, safe `Bash` commands).
+- **Writes are blocked** everywhere **except** the dedicated plan file (`.nano_claude/plans/<session_id>.md`).
+- Blocked write attempts produce a helpful message rather than prompting the user.
+- The system prompt is augmented with plan mode instructions.
+- After compaction, the plan file context is automatically restored.
+
+### Slash command workflow
+
+```
+[myproject] ❯ /plan add WebSocket support
+  Plan mode activated.
+  Plan file: .nano_claude/plans/a3f9c1b2.md
+  Reads allowed. All other writes blocked (except plan file).
+
+[myproject] ❯ <describe your task>
+  [Claude reads files, builds understanding, writes plan to plan file]
+
+[myproject] ❯ /plan
+  # Plan: Add WebSocket support
+
+  ## Phase 1: Create ws_handler.py
+  ## Phase 2: Modify server.py to mount the handler
+  ## Phase 3: Add tests
+
+[myproject] ❯ /plan done
+  Plan mode exited. Permission mode restored to: auto
+  Review the plan above and start implementing when ready.
+
+[myproject] ❯ /plan status
+  Plan mode: INACTIVE  (permission mode: auto)
+```
+
+### Agent tool workflow (autonomous)
+
+Claude can autonomously enter and exit plan mode using the `EnterPlanMode` and `ExitPlanMode` tools — both are auto-approved in all permission modes:
+
+```
+User: Refactor the authentication module
+
+Claude: [calls EnterPlanMode(task_description="Refactor auth module")]
+  → reads auth.py, users.py, tests/test_auth.py ...
+  → writes plan to .nano_claude/plans/...
+  [calls ExitPlanMode()]
+  → "Here is my plan. Please review and approve before I begin."
+
+User: Looks good, go ahead.
+Claude: [implements the plan]
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `/plan <description>` | Enter plan mode with a task description |
+| `/plan` | Print the current plan file contents |
+| `/plan done` | Exit plan mode, restore previous permissions |
+| `/plan status` | Show whether plan mode is active |
+
+---
+
 ## Context Compression
 
 Long conversations are automatically compressed to stay within the model's context window.
@@ -1882,6 +2017,18 @@ Long conversations are automatically compressed to stay within the model's conte
 2. **Auto-compact** — When token usage exceeds 70% of the context limit, older messages are summarized by the model into a concise recap.
 
 This happens transparently. You don't need to do anything.
+
+**Manual compaction** — You can also trigger compaction at any time with `/compact`. An optional focus string tells the summarizer what context to prioritize:
+
+```
+[myproject] ❯ /compact
+  Compacted: ~12400 → ~3200 tokens (~9200 saved)
+
+[myproject] ❯ /compact keep the WebSocket implementation details
+  Compacted: ~11800 → ~3100 tokens (~8700 saved)
+```
+
+If plan mode is active, the plan file context is automatically restored after any compaction.
 
 ---
 
@@ -2165,7 +2312,13 @@ clawspring/
 │   ├── stt.py            # STT: faster-whisper → openai-whisper → OpenAI API
 │   └── keyterms.py       # Coding-domain vocab from git branch + project files
 │
-└── tests/                # 239+ unit tests
+├── checkpoint/           # Checkpoint system (v3.05.6)
+│   ├── __init__.py       # Public API exports
+│   ├── types.py          # FileBackup + Snapshot dataclasses; MAX_SNAPSHOTS = 100
+│   ├── store.py          # File-level backup, snapshot persistence, rewind, cleanup
+│   └── hooks.py          # Write/Edit/NotebookEdit interception — backs up files before modification
+│
+└── tests/                # 263+ unit tests
     ├── test_mcp.py
     ├── test_memory.py
     ├── test_skills.py
@@ -2173,10 +2326,16 @@ clawspring/
     ├── test_tool_registry.py
     ├── test_compaction.py
     ├── test_diff_view.py
-    └── test_voice.py      # 29 voice tests (no hardware required)
+    ├── test_voice.py         # 29 voice tests (no hardware required)
+    ├── test_checkpoint.py    # 24 checkpoint unit tests
+    ├── e2e_checkpoint.py     # 10-step checkpoint lifecycle test
+    ├── e2e_plan_mode.py      # 10-step plan mode permission test
+    ├── e2e_plan_tools.py     # 8-step EnterPlanMode/ExitPlanMode tool test
+    ├── e2e_compact.py        # 9-step compaction test
+    └── e2e_commands.py       # 9-step /init /export /copy /status test
 ```
 
-> **For developers:** Each feature package (`multi_agent/`, `memory/`, `skill/`, `mcp/`, `voice/`) is self-contained. Add custom tools by calling `register_tool(ToolDef(...))` from any module imported by `tools.py`.
+> **For developers:** Each feature package (`multi_agent/`, `memory/`, `skill/`, `mcp/`, `voice/`, `checkpoint/`) is self-contained. Add custom tools by calling `register_tool(ToolDef(...))` from any module imported by `tools.py`.
 
 ---
 
