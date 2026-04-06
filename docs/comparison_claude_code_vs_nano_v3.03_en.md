@@ -1,8 +1,8 @@
-# Claude Code vs ClawSpring v3.03: Comparative Analysis
+# Claude Code vs CheetahClaws v3.03: Comparative Analysis
 
 ## Overview
 
-| Dimension | Claude Code (TypeScript) | ClawSpring (Python) |
+| Dimension | Claude Code (TypeScript) | CheetahClaws (Python) |
 |-----------|--------------------------|---------------------------|
 | **Language** | TypeScript + React/Ink | Python 3.8+ |
 | **File Count** | 1,332 TS/TSX files | 51 Python files |
@@ -22,7 +22,7 @@
 - Multi-layer permission system (MDM, team management, per-tool gates)
 - Built-in context compaction scheduler
 
-**ClawSpring** — `agent.py` (174 lines)
+**CheetahClaws** — `agent.py` (174 lines)
 - Generator-based event stream (`yield TextChunk | ToolStart | ToolEnd`)
 - Clean event flow, highly readable code
 - Cooperative cancellation support for sub-agents
@@ -34,7 +34,7 @@
 - Complex inter-tool dependencies (EnterWorktree → isolated env → ExitWorktree)
 - Advanced tools: `SyntheticOutputTool`, `RemoteTriggerTool`, etc.
 
-**ClawSpring**
+**CheetahClaws**
 - `ToolDef` registry pattern — any module can dynamically inject via `register_tool()`
 - `read_only` / `concurrent_safe` flags drive automatic permission decisions
 - Output truncation (32KB cap) prevents context bloat
@@ -43,7 +43,7 @@
 
 **Claude Code**: React + Ink, full component tree, diff visualization, dialogs, progress bars, streaming rendering
 
-**ClawSpring**: `rich` library, Markdown syntax highlighting — simple but sufficient
+**CheetahClaws**: `rich` library, Markdown syntax highlighting — simple but sufficient
 
 ---
 
@@ -62,15 +62,15 @@
 3. **Heavy build dependency** — Bun + esbuild + TypeScript; changes require a full build chain
 4. **Closed extensibility** — Feature flags (`internal-only modules`) dead-code-eliminated at compile time, no external extension
 
-### ClawSpring Strengths
+### CheetahClaws Strengths
 1. **Multi-provider** — Anthropic/OpenAI/Gemini/Kimi/Qwen/DeepSeek/Ollama with auto-detection
 2. **Highly readable** — 51 files, 10K lines, architecture immediately apparent, great for learning and research
 3. **Zero build** — Pure Python, `pip install` ready, changes take effect immediately
 4. **Dynamic extensibility** — Runtime injection via `register_tool()`, Plugin system supports git URL installation
-5. **Markdown Skills** — Custom skills via `~/.clawspring/skills/*.md` without touching source code
+5. **Markdown Skills** — Custom skills via `~/.cheetahclaws/skills/*.md` without touching source code
 6. **Task dependency graph** — `task/store.py` has `blocks/blocked_by` dependency tracking (absent in Claude Code)
 
-### ClawSpring Weaknesses
+### CheetahClaws Weaknesses
 1. **Thin UI** — No diff visualization, no dialog system, no progress bar components
 2. **Tool coverage gaps** — Missing `WebSearch` (needs API key), `NotebookEdit`, `LSP Diagnostics`
 3. **Weak security posture** — No MDM control, no team permission sync, no keychain integration
@@ -83,7 +83,7 @@
 
 ### Context Compaction Strategy
 
-| | Claude Code | ClawSpring |
+| | Claude Code | CheetahClaws |
 |-|-------------|-----------------|
 | Trigger | Exact token counting | `len/3.5` estimate at 70% threshold |
 | Compression layers | Single-layer AI summarization | Two layers: Snip (rule-based) + AI summary |
@@ -108,7 +108,7 @@ services/
 └── MagicDocs/    # Documentation generation
 ```
 
-**ClawSpring** (flat packages):
+**CheetahClaws** (flat packages):
 ```
 mcp/          # MCP client (stdio/SSE/HTTP)
 memory/       # Persistent dual-scope memory
@@ -124,7 +124,7 @@ plugin/       # Plugin loader/recommend system
 
 **Claude Code**: Anthropic only (`claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`)
 
-**ClawSpring**:
+**CheetahClaws**:
 
 | Provider | Models |
 |----------|--------|
@@ -141,7 +141,7 @@ plugin/       # Plugin loader/recommend system
 
 ## Summary
 
-ClawSpring is a **minimal reimplementation** of Claude Code's core philosophy. It surpasses the original in multi-provider support and code readability, making it ideal as a research foundation or personal tool. Claude Code is a complete engineering product with unmatched UI, security, and enterprise features. The most valuable gaps to bridge are: **WebSearch tool**, **more robust sub-agent coordination**, and **diff visualization rendering**.
+CheetahClaws is a **minimal reimplementation** of Claude Code's core philosophy. It surpasses the original in multi-provider support and code readability, making it ideal as a research foundation or personal tool. Claude Code is a complete engineering product with unmatched UI, security, and enterprise features. The most valuable gaps to bridge are: **WebSearch tool**, **more robust sub-agent coordination**, and **diff visualization rendering**.
 
 | Gap | Priority | Notes |
 |-----|----------|-------|

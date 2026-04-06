@@ -202,39 +202,39 @@ class TestVoiceInit:
 
 class TestReplVoiceIntegration:
     def test_voice_in_commands(self):
-        import clawspring
-        assert "voice" in clawspring.COMMANDS
+        import cheetahclaws
+        assert "voice" in cheetahclaws.COMMANDS
 
     def test_voice_command_callable(self):
-        import clawspring
-        assert callable(clawspring.COMMANDS["voice"])
+        import cheetahclaws
+        assert callable(cheetahclaws.COMMANDS["voice"])
 
     def test_handle_slash_voice_sentinel(self):
         """handle_slash('/voice ...') propagates __voice__ sentinel from cmd_voice."""
-        import clawspring
+        import cheetahclaws
 
         # Patch cmd_voice to return a sentinel directly
         sentinel = ("__voice__", "hello world")
-        with patch.object(clawspring, "cmd_voice", return_value=sentinel):
+        with patch.object(cheetahclaws, "cmd_voice", return_value=sentinel):
             # Re-bind in COMMANDS so the patch is seen
-            clawspring.COMMANDS["voice"] = clawspring.cmd_voice
-            result = clawspring.handle_slash("/voice", object(), {})
+            cheetahclaws.COMMANDS["voice"] = cheetahclaws.cmd_voice
+            result = cheetahclaws.handle_slash("/voice", object(), {})
             assert result == sentinel
 
     def test_voice_status_no_crash(self, capsys):
         """'/voice status' should not raise even without audio hardware."""
-        import clawspring
+        import cheetahclaws
         # Should not raise
         try:
-            clawspring.cmd_voice("status", object(), {})
+            cheetahclaws.cmd_voice("status", object(), {})
         except SystemExit:
             pass
         # Output captured — just ensure no uncaught exception
 
     def test_voice_lang_set(self, capsys):
-        import clawspring
-        clawspring.cmd_voice("lang zh", object(), {})
-        assert clawspring._voice_language == "zh"
+        import cheetahclaws
+        cheetahclaws.cmd_voice("lang zh", object(), {})
+        assert cheetahclaws._voice_language == "zh"
         # Reset
-        clawspring.cmd_voice("lang auto", object(), {})
-        assert clawspring._voice_language == "auto"
+        cheetahclaws.cmd_voice("lang auto", object(), {})
+        assert cheetahclaws._voice_language == "auto"

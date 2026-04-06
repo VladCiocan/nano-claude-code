@@ -1,10 +1,10 @@
-"""mcp package — Model Context Protocol client for clawspring.
+"""mcp package — Model Context Protocol client for cheetahclaws.
 
 Usage
 -----
 MCP servers are configured in one of two JSON files:
 
-  ~/.clawspring/mcp.json        (user-level, all projects)
+  ~/.cheetahclaws/mcp.json        (user-level, all projects)
   .mcp.json                      (project-level, current dir, overrides user)
 
 Format:

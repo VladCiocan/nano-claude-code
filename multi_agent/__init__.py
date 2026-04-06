@@ -1,4 +1,4 @@
-"""Multi-agent package for clawspring.
+"""Multi-agent package for cheetahclaws.
 
 Provides:
   - AgentDefinition  — typed agent definition (name, system_prompt, model, tools)

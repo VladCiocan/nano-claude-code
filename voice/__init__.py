@@ -1,4 +1,4 @@
-"""Voice package for clawspring.
+"""Voice package for cheetahclaws.
 
 Public API
 ----------

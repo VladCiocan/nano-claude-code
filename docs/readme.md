@@ -1,1 +1,1 @@
-clawspring demo
+cheetahclaws demo

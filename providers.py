@@ -1,5 +1,5 @@
 """
-Multi-provider support for ClawSpring.
+Multi-provider support for CheetahClaws.
 
 Supported providers:
   anthropic  — Claude (claude-opus-4-6, claude-sonnet-4-6, ...)
@@ -573,7 +573,7 @@ def stream_ollama(
         tool_calls.append({"id": v["id"], "name": v["name"], "input": v["input"]})
 
     # Ollama doesn't return exact token counts via livestream easily until "done",
-    # but we can do a rough estimate or 0, clawspring handles zero gracefully
+    # but we can do a rough estimate or 0, cheetahclaws handles zero gracefully
     yield AssistantTurn(text, tool_calls, 0, 0)
 
 

@@ -170,8 +170,8 @@ register_tool(ToolDef(
                     "type": "string",
                     "enum": ["user", "project"],
                     "description": (
-                        "'user' (default) = ~/.clawspring/memory/ shared across projects; "
-                        "'project' = .clawspring/memory/ local to this project"
+                        "'user' (default) = ~/.cheetahclaws/memory/ shared across projects; "
+                        "'project' = .cheetahclaws/memory/ local to this project"
                     ),
                 },
                 "confidence": {

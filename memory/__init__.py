@@ -1,10 +1,10 @@
-"""Memory package for clawspring.
+"""Memory package for cheetahclaws.
 
 Provides persistent, file-based memory across conversations.
 
 Storage layout:
-  user scope    : ~/.clawspring/memory/<slug>.md   (shared across projects)
-  project scope : .clawspring/memory/<slug>.md     (local to cwd)
+  user scope    : ~/.cheetahclaws/memory/<slug>.md   (shared across projects)
+  project scope : .cheetahclaws/memory/<slug>.md     (local to cwd)
 
 The MEMORY.md index in each directory is auto-maintained and injected
 into the system prompt so Claude has an overview of available memories.
