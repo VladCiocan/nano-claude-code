@@ -362,6 +362,6 @@ def render_gif(output_path):
 
 if __name__ == "__main__":
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "docs", "brainstorm_demo.gif")
+                       "..", "docs", "brainstorm_demo.gif")
     render_gif(out)
     print(f"\nGIF saved: {out}")
