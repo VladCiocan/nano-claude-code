@@ -98,7 +98,7 @@ def prompt_line(text="", cursor=False):
     cur = "█" if cursor else ""
     return [
         seg("[nano_claude_code] ", SUBTEXT),
-        seg("❯ ", CYAN, True),
+        seg("» ", CYAN, True),
         seg(text + cur, TEXT),
     ]
 
@@ -404,11 +404,10 @@ def render_screenshot(output_path="screenshot.png"):
 
 
 if __name__ == "__main__":
-    import sys
-    out_dir = os.path.dirname(os.path.abspath(__file__))
+    docs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs")
 
-    gif_path = os.path.join(out_dir, "demo.gif")
-    png_path = os.path.join(out_dir, "screenshot.png")
+    gif_path = os.path.join(docs_dir, "demo.gif")
+    png_path = os.path.join(docs_dir, "screenshot.png")
 
     render_screenshot(png_path)
     render_gif(gif_path)

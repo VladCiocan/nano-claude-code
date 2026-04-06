@@ -26,7 +26,8 @@ Slash commands in REPL:
   /thinking   Toggle extended thinking
   /permissions [mode]  Set permission mode
   /cwd [path] Show or change working directory
-  /memory [query]   Show/search persistent memories
+  /memory [query]         Show/search persistent memories
+  /memory consolidate     Extract long-term insights from current session via AI
   /skills           List available skills
   /agents           Show sub-agent tasks
   /mcp              List MCP servers and their tools
@@ -48,11 +49,20 @@ Slash commands in REPL:
   /voice            Record voice input, transcribe, and submit
   /voice status     Show available recording and STT backends
   /voice lang <code>  Set STT language (e.g. zh, en, ja — default: auto)
+  /proactive [dur]  Background sentinel polling (e.g. /proactive 5m)
+  /proactive off    Disable proactive polling
+  /cloudsave setup <token>   Configure GitHub token for cloud sync
+  /cloudsave        Upload current session to GitHub Gist
+  /cloudsave push [desc]     Upload with optional description
+  /cloudsave auto on|off     Toggle auto-upload on exit
+  /cloudsave list   List your nano-claude-code Gists
+  /cloudsave load <gist_id>  Download and load a session from Gist
   /exit /quit Exit
 """
 from __future__ import annotations
 
 import os
+import re
 import sys
 if sys.platform == "win32":
     os.system("")  # Enable ANSI escape codes on Windows CMD
@@ -82,7 +92,7 @@ except ImportError:
     _RICH = False
     console = None
 
-VERSION = "3.05.2"
+VERSION = "3.05.5"
 
 # ── ANSI helpers (used even with rich for non-markdown output) ─────────────
 C = {
@@ -129,6 +139,7 @@ def _has_diff(text: str) -> bool:
 
 _accumulated_text: list[str] = []   # buffer text during streaming
 _current_live: "Live | None" = None  # active Rich Live instance (one at a time)
+_RICH_LIVE = True  # set to False (via config rich_live=false) to disable in-place Live streaming
 
 def _make_renderable(text: str):
     """Return a Rich renderable: Markdown if text contains markup, else plain."""
@@ -139,7 +150,7 @@ def _make_renderable(text: str):
 def _start_live() -> None:
     """Start a Rich Live block for in-place Markdown streaming (no-op if not Rich)."""
     global _current_live
-    if _RICH and _current_live is None:
+    if _RICH and _RICH_LIVE and _current_live is None:
         _current_live = Live(console=console, auto_refresh=False,
                              vertical_overflow="visible")
         _current_live.start()
@@ -148,7 +159,7 @@ def stream_text(chunk: str) -> None:
     """Buffer chunk; update Live in-place when Rich available, else print directly."""
     global _current_live
     _accumulated_text.append(chunk)
-    if _RICH:
+    if _RICH and _RICH_LIVE:
         if _current_live is None:
             _start_live()
         _current_live.update(_make_renderable("".join(_accumulated_text)), refresh=True)
@@ -157,7 +168,12 @@ def stream_text(chunk: str) -> None:
 
 def stream_thinking(chunk: str, verbose: bool):
     if verbose:
-        print(clr(chunk, "dim"), end="", flush=True)
+        # Strip internal newlines when models stream token-by-token (like Qwen).
+        clean_chunk = chunk.replace("\n", " ")
+        if clean_chunk:
+            # We explicitly do NOT use clr() wrapper here to avoid outputting \033[0m (reset)
+            # after every single token. Repeated ANSI resets can cause formatting glitches and vertical cascades.
+            print(f"{C['dim']}{clean_chunk}", end="", flush=True)
 
 def flush_response() -> None:
     """Commit buffered text to screen: stop Live (freezes rendered Markdown in place)."""
@@ -167,16 +183,83 @@ def flush_response() -> None:
     if _current_live is not None:
         _current_live.stop()
         _current_live = None
-    elif _RICH and full.strip():
+    elif _RICH and _RICH_LIVE and full.strip():
         # Fallback: no Live was running but Rich is available (e.g. after thinking)
         console.print(_make_renderable(full))
     else:
         print()  # ensure newline after plain-text stream
 
+_TOOL_SPINNER_PHRASES = [
+    "☕ Brewing some coffee...",
+    "🚰 Drinking some water...",
+    "🧠 Thinking really hard...",
+    "🔧 Tightening some bolts...",
+    "🎯 Locking on target...",
+    "🔍 Investigating...",
+    "🧩 Connecting the dots...",
+    "⚡ Charging up...",
+    "🎨 Painting the bits...",
+    "🏗️ Building something cool...",
+    "🌀 Spinning the wheels...",
+    "🧪 Running experiments...",
+    "📡 Scanning frequencies...",
+    "🛠️ Tuning the engine...",
+    "🐛 Chasing a bug...",
+]
+
+_tool_spinner_thread = None
+_tool_spinner_stop = threading.Event()
+
+_spinner_phrase = ""
+_spinner_lock = threading.Lock()
+
+def _run_tool_spinner():
+    """Background spinner on a single line using carriage return."""
+    chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    i = 0
+    while not _tool_spinner_stop.is_set():
+        with _spinner_lock:
+            phrase = _spinner_phrase
+        frame = chars[i % len(chars)]
+        sys.stdout.write(f"\r  {frame} {clr(phrase, 'dim')}   ")
+        sys.stdout.flush()
+        i += 1
+        _tool_spinner_stop.wait(0.1)
+
+def _start_tool_spinner():
+    global _tool_spinner_thread
+    if _tool_spinner_thread and _tool_spinner_thread.is_alive():
+        return  # already running
+    import random
+    with _spinner_lock:
+        global _spinner_phrase
+        _spinner_phrase = random.choice(_TOOL_SPINNER_PHRASES)
+    _tool_spinner_stop.clear()
+    _tool_spinner_thread = threading.Thread(target=_run_tool_spinner, daemon=True)
+    _tool_spinner_thread.start()
+
+def _change_spinner_phrase():
+    """Change the spinner phrase without stopping it."""
+    import random
+    with _spinner_lock:
+        global _spinner_phrase
+        _spinner_phrase = random.choice(_TOOL_SPINNER_PHRASES)
+
+def _stop_tool_spinner():
+    global _tool_spinner_thread
+    if not _tool_spinner_thread:
+        return
+    _tool_spinner_stop.set()
+    _tool_spinner_thread.join(timeout=1)
+    _tool_spinner_thread = None
+    # Clear the spinner on the same line
+    sys.stdout.write(f"\r{' ' * 50}\r")
+    sys.stdout.flush()
+
 def print_tool_start(name: str, inputs: dict, verbose: bool):
     """Show tool invocation."""
     desc = _tool_desc(name, inputs)
-    print(clr(f"\n  ⚙  {desc}", "dim", "cyan"), flush=True)
+    print(clr(f"  ⚙  {desc}", "dim", "cyan"), flush=True)
     if verbose:
         print(clr(f"     inputs: {json.dumps(inputs, ensure_ascii=False)[:200]}", "dim"))
 
@@ -264,19 +347,16 @@ def _proactive_watcher_loop(config):
                 cb = config.get("_run_query_callback")
                 if cb:
                     cb(f"(System Automated Event) You have been inactive for {interval} seconds. "
-                       "Check if you have any pending tasks to execute or simply say 'No pending tasks'.")
+                       "Before doing anything else, review your previous messages in this conversation. "
+                       "If you said you would implement, fix, or do something and didn't finish it, "
+                       "continue and complete that work now. "
+                       "Otherwise, check if you have any pending tasks to execute or simply say 'No pending tasks'.")
         except Exception as e:
             traceback.print_exc()
             print(f"\n[proactive watcher error]: {e}", flush=True)
 
 def cmd_help(_args: str, _state, _config) -> bool:
     print(__doc__)
-    return True
-
-def cmd_clear(_args: str, state, _config) -> bool:
-    state.messages.clear()
-    state.turn_count = 0
-    ok("Conversation cleared.")
     return True
 
 def cmd_model(args: str, _state, config) -> bool:
@@ -309,6 +389,273 @@ def cmd_model(args: str, _state, config) -> bool:
         save_config(config)
     return True
 
+def _generate_personas(topic: str, curr_model: str, config: dict, count: int = 5) -> dict | None:
+    """Ask the LLM to generate `count` topic-appropriate expert personas as a dict."""
+    from providers import stream, TextChunk
+    import json
+
+    example_entries = "\n".join(
+        f'  "p{i+1}": {{"icon": "emoji", "role": "Expert Title", "desc": "One sentence describing their analytical angle."}}'
+        for i in range(count)
+    )
+    user_msg = f"""Generate {count} expert personas for a multi-perspective brainstorming debate on: "{topic}"
+
+Return ONLY a valid JSON object — no markdown fences, no extra text — like this:
+{{
+{example_entries}
+}}
+
+Choose experts whose domains are most relevant to analyzing "{topic}" from different angles."""
+
+    internal_config = config.copy()
+    internal_config["no_tools"] = True
+    chunks = []
+    try:
+        for event in stream(curr_model, "You are a debate facilitator. Return only valid JSON.", [{"role": "user", "content": user_msg}], [], internal_config):
+            if isinstance(event, TextChunk):
+                chunks.append(event.text)
+    except Exception:
+        return None
+
+    raw = "".join(chunks).strip()
+    # Strip markdown code fences if the model wraps in ```json ... ```
+    if "```" in raw:
+        for part in raw.split("```"):
+            part = part.strip().lstrip("json").strip()
+            try:
+                return json.loads(part)
+            except Exception:
+                continue
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+_TECH_PERSONAS = {
+    "architect":   {"icon": "🏗️", "role": "Principal Software Architect",       "desc": "Focus on modularity, clear boundaries, patterns, and long-term maintainability."},
+    "innovator":   {"icon": "💡", "role": "Pragmatic Product Innovator",          "desc": "Focus on bold, technically feasible ideas that add high user value and differentiation."},
+    "security":    {"icon": "🛡️", "role": "Security & Risk Engineer",            "desc": "Focus on vulnerabilities, data integrity, secrets handling, and project robustness."},
+    "refactor":    {"icon": "🔧", "role": "Senior Code Quality Lead",             "desc": "Focus on code smells, complexity reduction, DRY principles, and readability."},
+    "performance": {"icon": "⚡", "role": "Performance & Optimization Specialist","desc": "Focus on I/O bottlenecks, resource efficiency, latency, and scalability."},
+}
+
+
+def _interactive_ollama_picker(config: dict) -> bool:
+    """Prompt the user to select from locally available Ollama models."""
+    from providers import PROVIDERS, list_ollama_models
+    prov = PROVIDERS.get("ollama", {})
+    base_url = prov.get("base_url", "http://localhost:11434")
+    
+    models = list_ollama_models(base_url)
+    if not models:
+        err(f"No local Ollama models found at {base_url}.")
+        return False
+        
+    print(clr("\n  ── Local Ollama Models ──", "dim"))
+    for i, m in enumerate(models):
+        print(clr(f"  [{i+1:2d}] ", "yellow") + m)
+    print()
+    
+    try:
+        ans = input(clr("  Select a model number or Enter to cancel > ", "cyan")).strip()
+        if not ans: return False
+        idx = int(ans) - 1
+        if 0 <= idx < len(models):
+            new_model = f"ollama/{models[idx]}"
+            config["model"] = new_model
+            from config import save_config
+            save_config(config)
+            ok(f"Model updated to {new_model}")
+            return True
+        else:
+            err("Invalid selection.")
+    except (ValueError, KeyboardInterrupt, EOFError):
+        pass
+    return False
+
+def cmd_brainstorm(args: str, state, config) -> bool:
+    """Run a multi-persona iterative brainstorming session on the project.
+    
+    Usage: /brainstorm [topic]
+    """
+    from providers import stream
+    import time
+    from pathlib import Path
+    
+    # ── Context Snapshot ──────────────────────────────────────────────────
+    readme_path = Path("README.md")
+    readme_content = ""
+    if readme_path.exists():
+        readme_content = readme_path.read_text("utf-8", errors="replace")
+    
+    claude_md = Path("CLAUDE.md")
+    claude_content = ""
+    if claude_md.exists():
+        claude_content = claude_md.read_text("utf-8", errors="replace")
+        
+    project_files = "\n".join([f.name for f in Path(".").glob("*") if f.is_file() and not f.name.startswith(".")])
+    
+    user_topic = args.strip() or "general project improvement and architectural evolution"
+
+    # ── Ask user for agent count interactively ────────────────────────────
+    try:
+        ans = input(clr(f"  How many agents? (2-100, default 5) > ", "cyan")).strip()
+        agent_count = int(ans) if ans else 5
+        agent_count = max(2, min(agent_count, 100))
+    except (ValueError, KeyboardInterrupt, EOFError):
+        agent_count = 5
+    
+    snapshot = f"""PROJECT CONTEXT:
+README:
+{readme_content[:3000]}
+
+CLAUDE.MD:
+{claude_content[:1000]}
+
+ROOT FILES:
+{project_files}
+
+USER FOCUS: {user_topic}
+"""
+    curr_model = config["model"]
+
+    # ── Personas (dynamically generated per topic) ────────────────────────
+    info(clr(f"Generating {agent_count} topic-appropriate expert personas...", "dim"))
+    personas = _generate_personas(user_topic, curr_model, config, count=agent_count)
+    if not personas:
+        info(clr("(persona generation failed, using default tech personas)", "dim"))
+        personas = dict(list(_TECH_PERSONAS.items())[:agent_count])
+    
+    # ── Identity Generator ────────────────────────────────────────────────
+    def get_identity(letter):
+        try:
+            from faker import Faker
+            fake = Faker()
+            return f"{letter}", fake.name()
+        except:
+            first = ["Alex", "Sam", "Taylor", "Jordan", "Casey", "Riley", "Drew", "Avery"]
+            last = ["Garcia", "Martinez", "Lopez", "Hernandez", "Gonzalez", "Sanchez", "Ramirez", "Torres"]
+            import random
+            return f"{letter}", f"{random.choice(first)} {random.choice(last)}"
+            
+    # ── Debate Loop ───────────────────────────────────────────────────────
+    outputs_dir = Path("brainstorm_outputs")
+    outputs_dir.mkdir(exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    out_file = outputs_dir / f"brainstorm_{ts}.md"
+    
+    brainstorm_history = []
+    
+    ok(f"Starting {agent_count}-Agent Brainstorming Session on: {clr(user_topic, 'bold')}")
+    info(clr("Generating diverse perspectives...", "dim"))
+
+    # Helper function to call the model via the unified stream() function
+    def call_persona(persona_name, p_data, history):
+        letter, name = get_identity(persona_name[0].upper())
+        # We wrap the persona instructions into a 'system' role
+        system_prompt = f"""You are {name}, the {p_data['role']}. Identity: Agent {letter}.
+{p_data['desc']}
+
+TOPIC UNDER DISCUSSION: {user_topic}
+
+PROJECT CONTEXT (if relevant to the topic):
+{snapshot}
+
+INSTRUCTIONS:
+1. Provide 3-5 concrete, actionable insights or ideas from your expert perspective on the topic.
+2. If there are prior ideas from other agents, briefly acknowledge them and build upon or challenge them.
+3. Be specific, well-reasoned, and professional. Stay in character as your role.
+4. Prefix each of your points with: [Agent {letter} — {name}]
+5. Output your response in clean Markdown.
+"""
+        user_msg = f"TOPIC: {user_topic}\n\nPRIOR IDEAS FROM DEBATE:\n{history or 'No previous ideas yet. You are the first to speak.'}"
+        
+        full_response = []
+        # Internal calls should not include tools (tool_schemas already passed as [])
+        internal_config = config.copy()
+        internal_config["no_tools"] = True
+        
+        try:
+            from providers import TextChunk
+            for event in stream(curr_model, system_prompt, [{"role": "user", "content": user_msg}], [], internal_config):
+                if isinstance(event, TextChunk):
+                    full_response.append(event.text)
+        except Exception as e:
+            return f"Error from Agent {letter}: {e}"
+            
+        return "".join(full_response).strip()
+
+    full_log = [f"# Brainstorming Session: {user_topic}", f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}", f"**Model:** {curr_model}", "---"]
+    
+    for p_name, p_data in personas.items():
+        icon = p_data.get("icon", "🤖")
+        info(f"{icon} {clr(p_data['role'], 'yellow')} is thinking...")
+
+        hist_text = "\n\n".join(brainstorm_history) if brainstorm_history else ""
+        content = call_persona(p_name, p_data, hist_text)
+
+        if content:
+            brainstorm_history.append(content)
+            full_log.append(f"## {icon} {p_data['role']}\n{content}")
+            print(clr("  └─ Perspective captured.", "dim"))
+        else:
+            err(f"  └─ Failed to capture {p_name} perspective.")
+
+    # Save to file
+    final_output = "\n\n".join(full_log)
+    out_file.write_text(final_output, encoding="utf-8")
+    
+    ok(f"Brainstorming complete! Results saved to {clr(str(out_file), 'bold')}")
+    
+    # ── Synthetic Injection ──────────────────────────────────────────────
+    info(clr("Injecting debate results into current session for final analysis...", "dim"))
+
+    synthesis_prompt = f"""I have just completed a multi-agent brainstorming session regarding: '{user_topic}'.
+The full debate results have been saved to the file: {out_file}
+
+Please read that file, then analyze the diverse perspectives. Identify the strongest ideas, potential conflicts, and provide a synthesized 'Master Plan' with concrete phases. Be concise and actionable."""
+
+    # Return sentinel to trigger synthesis via run_query in the main REPL loop
+    # Pass out_file so the REPL can append the synthesis to the same file.
+    return ("__brainstorm__", synthesis_prompt, str(out_file))
+
+def _save_synthesis(state, out_file: str) -> None:
+    """Append the last assistant response as the synthesis section of the brainstorm file."""
+    from pathlib import Path
+    for msg in reversed(state.messages):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = "".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+        else:
+            return
+        text = text.strip()
+        if not text:
+            return
+        try:
+            with Path(out_file).open("a", encoding="utf-8") as f:
+                f.write("\n\n---\n\n## 🧠 Synthesis — Master Plan\n\n")
+                f.write(text)
+                f.write("\n")
+            ok(f"Synthesis appended to {clr(out_file, 'bold')}")
+        except Exception as e:
+            err(f"Failed to save synthesis: {e}")
+        return
+
+
+def cmd_clear(_args: str, state, _config) -> bool:
+    state.messages.clear()
+    state.turn_count = 0
+    ok("Conversation cleared.")
+    return True
+
 def cmd_config(args: str, _state, config) -> bool:
     from config import save_config
     if not args:
@@ -333,87 +680,212 @@ def cmd_config(args: str, _state, config) -> bool:
 
 def cmd_save(args: str, state, _config) -> bool:
     from config import SESSIONS_DIR
-    fname = args.strip() or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    path = Path(fname) if "/" in fname else SESSIONS_DIR / fname
-    data = {
-        "messages": [
-            m if not isinstance(m.get("content"), list) else
-            {**m, "content": [
-                b if isinstance(b, dict) else b.model_dump()
-                for b in m["content"]
-            ]}
-            for m in state.messages
-        ],
-        "turn_count": state.turn_count,
-        "total_input_tokens": state.total_input_tokens,
-        "total_output_tokens": state.total_output_tokens,
-    }
+    import uuid
+    sid   = uuid.uuid4().hex[:8]
+    ts    = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = args.strip() or f"session_{ts}_{sid}.json"
+    path  = Path(fname) if "/" in fname else SESSIONS_DIR / fname
+    data  = _build_session_data(state, session_id=sid)
     path.write_text(json.dumps(data, indent=2, default=str))
-    ok(f"Session saved to {path}")
+    ok(f"Session saved → {path}  (id: {sid})"  )
     return True
 
-def save_latest(args: str, state, _config) -> bool:
-    from config import MR_SESSION_DIR
-    fname = "session_latest.json"
-    path = Path(fname) if "/" in fname else MR_SESSION_DIR / fname
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = {
-        "messages": [
-            m if not isinstance(m.get("content"), list) else
-            {**m, "content": [
-                b if isinstance(b, dict) else b.model_dump()
-                for b in m["content"]
-            ]}
-            for m in state.messages
-        ],
-        "turn_count": state.turn_count,
-        "total_input_tokens": state.total_input_tokens,
-        "total_output_tokens": state.total_output_tokens,
-    }
-    path.write_text(json.dumps(data, indent=2, default=str))
-    ok(f"Session saved to {path}")
+def save_latest(args: str, state, config_or_none=None) -> bool:
+    """Save session on exit: session_latest.json + daily/ copy + append to history.json."""
+    from config import MR_SESSION_DIR, DAILY_DIR, SESSION_HIST_FILE
+    if not state.messages:
+        return True
+
+    cfg = config_or_none or {}
+    daily_limit   = cfg.get("session_daily_limit",   5)
+    history_limit = cfg.get("session_history_limit", 100)
+
+    import uuid
+    now = datetime.now()
+    sid = uuid.uuid4().hex[:8]
+    ts  = now.strftime("%H%M%S")
+    date_str = now.strftime("%Y-%m-%d")
+    data = _build_session_data(state, session_id=sid)
+    payload = json.dumps(data, indent=2, default=str)
+
+    # 1. session_latest.json — always overwrite for quick /resume
+    MR_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    latest_path = MR_SESSION_DIR / "session_latest.json"
+    latest_path.write_text(payload)
+
+    # 2. daily/YYYY-MM-DD/session_HHMMSS_sid.json
+    day_dir = DAILY_DIR / date_str
+    day_dir.mkdir(parents=True, exist_ok=True)
+    daily_path = day_dir / f"session_{ts}_{sid}.json"
+    daily_path.write_text(payload)
+
+    # Prune daily folder: keep only the latest `daily_limit` files
+    daily_files = sorted(day_dir.glob("session_*.json"))
+    for old in daily_files[:-daily_limit]:
+        old.unlink(missing_ok=True)
+
+    # 3. Append to history.json (master file)
+    if SESSION_HIST_FILE.exists():
+        try:
+            hist = json.loads(SESSION_HIST_FILE.read_text())
+        except Exception:
+            hist = {"total_turns": 0, "sessions": []}
+    else:
+        hist = {"total_turns": 0, "sessions": []}
+
+    hist["sessions"].append(data)
+    hist["total_turns"] = sum(s.get("turn_count", 0) for s in hist["sessions"])
+
+    # Prune history: keep only the latest `history_limit` sessions
+    if len(hist["sessions"]) > history_limit:
+        hist["sessions"] = hist["sessions"][-history_limit:]
+
+    SESSION_HIST_FILE.write_text(json.dumps(hist, indent=2, default=str))
+
+    ok(f"Session saved → {latest_path}")
+    ok(f"             → {daily_path}  (id: {sid})")
+    ok(f"             → {SESSION_HIST_FILE}  ({len(hist['sessions'])} sessions / {hist['total_turns']} total turns)")
     return True
 def cmd_load(args: str, state, _config) -> bool:
-    from config import SESSIONS_DIR, MR_SESSION_DIR
-    
+    from config import SESSIONS_DIR, MR_SESSION_DIR, DAILY_DIR
+
     path = None
     if not args.strip():
-        # List available sessions
-        sessions = sorted(SESSIONS_DIR.glob("*.json"))
-        if MR_SESSION_DIR.exists():
-            sessions.extend(sorted(MR_SESSION_DIR.glob("*.json")))
-        
+        # Collect sessions from daily/ folders, newest first
+        sessions: list[Path] = []
+        if DAILY_DIR.exists():
+            for day_dir in sorted(DAILY_DIR.iterdir(), reverse=True):
+                if day_dir.is_dir():
+                    sessions.extend(sorted(day_dir.glob("session_*.json"), reverse=True))
+        # Fall back to legacy mr_sessions/ if daily/ is empty
+        if not sessions and MR_SESSION_DIR.exists():
+            sessions = [s for s in sorted(MR_SESSION_DIR.glob("*.json"), reverse=True)
+                        if s.name != "session_latest.json"]
+        # Also include manually /save'd sessions from SESSIONS_DIR root
+        sessions.extend(sorted(SESSIONS_DIR.glob("session_*.json"), reverse=True))
+
         if not sessions:
             info("No saved sessions found.")
             return True
-            
+
         print(clr("  Select a session to load:", "cyan", "bold"))
+        prev_date = None
         for i, s in enumerate(sessions):
-            print(clr(f"  [{i+1}] ", "yellow") + s.name)
-            
+            # Group by date header
+            date_label = s.parent.name if s.parent.name != "mr_sessions" else ""
+            if date_label and date_label != prev_date:
+                print(clr(f"\n  ── {date_label} ──", "dim"))
+                prev_date = date_label
+
+            label = s.name
+            try:
+                meta     = json.loads(s.read_text())
+                saved_at = meta.get("saved_at", "")[-8:]   # HH:MM:SS
+                sid      = meta.get("session_id", "")
+                turns    = meta.get("turn_count", "?")
+                label    = f"{saved_at}  id:{sid}  turns:{turns}  {s.name}"
+            except Exception:
+                pass
+            print(clr(f"  [{i+1:2d}] ", "yellow") + label)
+
+        # Show history.json option at the bottom if it exists
+        from config import SESSION_HIST_FILE
+        has_history = SESSION_HIST_FILE.exists()
+        if has_history:
+            try:
+                hist_meta = json.loads(SESSION_HIST_FILE.read_text())
+                n_sess  = len(hist_meta.get("sessions", []))
+                n_turns = hist_meta.get("total_turns", 0)
+                print(clr(f"\n  ── Complete History ──", "dim"))
+                print(clr("  [ H] ", "yellow") +
+                      f"Load ALL history  ({n_sess} sessions / {n_turns} total turns)  {SESSION_HIST_FILE}")
+            except Exception:
+                has_history = False
+
         print()
-        ans = input(clr("  Enter number (or press Enter to cancel) > ", "cyan")).strip()
-        if not ans.isdigit():
+        ans = input(clr("  Enter number(s) (e.g. 1 or 1,2,3), H for full history, or Enter to cancel > ", "cyan")).strip().lower()
+
+        if not ans:
             info("  Cancelled.")
             return True
-            
-        idx = int(ans) - 1
-        if idx < 0 or idx >= len(sessions):
-            err("Invalid selection.")
+
+        if ans == "h":
+            if not has_history:
+                err("history.json not found.")
+                return True
+            hist_data = json.loads(SESSION_HIST_FILE.read_text())
+            all_sessions = hist_data.get("sessions", [])
+            if not all_sessions:
+                info("history.json is empty.")
+                return True
+            all_messages = []
+            for s in all_sessions:
+                all_messages.extend(s.get("messages", []))
+            total_turns = sum(s.get("turn_count", 0) for s in all_sessions)
+            est_tokens = sum(len(str(m.get("content", ""))) for m in all_messages) // 4
+            print()
+            print(clr(f"  {len(all_messages)} messages / ~{est_tokens:,} tokens estimated", "dim"))
+            confirm = input(clr("  Load full history into current session? [y/N] > ", "yellow")).strip().lower()
+            if confirm != "y":
+                info("  Cancelled.")
+                return True
+            state.messages = all_messages
+            state.turn_count = total_turns
+            ok(f"Full history loaded from {SESSION_HIST_FILE} ({len(all_messages)} messages across {len(all_sessions)} sessions)")
             return True
-            
-        path = sessions[idx]
-        
+
+        # Parse comma-separated numbers (e.g. "1", "1,2,3", "1, 3")
+        raw_parts = [p.strip() for p in ans.split(",")]
+        indices = []
+        for p in raw_parts:
+            if not p.isdigit():
+                err(f"Invalid input '{p}'. Enter numbers separated by commas, or H.")
+                return True
+            idx = int(p) - 1
+            if idx < 0 or idx >= len(sessions):
+                err(f"Invalid selection: {p} (valid range: 1–{len(sessions)})")
+                return True
+            if idx not in indices:
+                indices.append(idx)
+
+        if len(indices) == 1:
+            # Single session — load directly
+            path = sessions[indices[0]]
+        else:
+            # Multiple sessions — merge in selected order
+            all_messages = []
+            total_turns  = 0
+            loaded_names = []
+            for idx in indices:
+                s_path = sessions[idx]
+                s_data = json.loads(s_path.read_text())
+                all_messages.extend(s_data.get("messages", []))
+                total_turns += s_data.get("turn_count", 0)
+                loaded_names.append(s_path.name)
+            est_tokens = sum(len(str(m.get("content", ""))) for m in all_messages) // 4
+            print()
+            print(clr(f"  {len(loaded_names)} sessions / {len(all_messages)} messages / ~{est_tokens:,} tokens estimated", "dim"))
+            confirm = input(clr("  Merge and load? [y/N] > ", "yellow")).strip().lower()
+            if confirm != "y":
+                info("  Cancelled.")
+                return True
+            state.messages = all_messages
+            state.turn_count = total_turns
+            ok(f"Loaded {len(loaded_names)} sessions ({len(all_messages)} messages): {', '.join(loaded_names)}")
+            return True
+
     if not path:
         fname = args.strip()
         path = Path(fname) if "/" in fname or "\\" in fname else SESSIONS_DIR / fname
         if not path.exists() and ("/" not in fname and "\\" not in fname):
-            alt_path = MR_SESSION_DIR / fname
-            if alt_path.exists():
-                path = alt_path
-                
+            for alt in [MR_SESSION_DIR / fname,
+                        *(d / fname for d in DAILY_DIR.iterdir()
+                          if DAILY_DIR.exists() and d.is_dir())]:
+                if alt.exists():
+                    path = alt
+                    break
         if not path.exists():
-            err(f"File not found: {path} (checked {SESSIONS_DIR} and {MR_SESSION_DIR})")
+            err(f"File not found: {path}")
             return True
         
     data = json.loads(path.read_text())
@@ -499,15 +971,19 @@ def cmd_cost(_args: str, state, config) -> bool:
     return True
 
 def cmd_verbose(_args: str, _state, config) -> bool:
+    from config import save_config
     config["verbose"] = not config.get("verbose", False)
     state_str = "ON" if config["verbose"] else "OFF"
     ok(f"Verbose mode: {state_str}")
+    save_config(config)
     return True
 
 def cmd_thinking(_args: str, _state, config) -> bool:
+    from config import save_config
     config["thinking"] = not config.get("thinking", False)
     state_str = "ON" if config["thinking"] else "OFF"
     ok(f"Extended thinking: {state_str}")
+    save_config(config)
     return True
 
 def cmd_permissions(args: str, _state, config) -> bool:
@@ -538,23 +1014,192 @@ def cmd_cwd(args: str, _state, _config) -> bool:
             err(str(e))
     return True
 
+def _build_session_data(state, session_id: str | None = None) -> dict:
+    """Serialize current conversation state to a JSON-serializable dict."""
+    import uuid
+    return {
+        "session_id": session_id or uuid.uuid4().hex[:8],
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "messages": [
+            m if not isinstance(m.get("content"), list) else
+            {**m, "content": [
+                b if isinstance(b, dict) else b.model_dump()
+                for b in m["content"]
+            ]}
+            for m in state.messages
+        ],
+        "turn_count": state.turn_count,
+        "total_input_tokens": state.total_input_tokens,
+        "total_output_tokens": state.total_output_tokens,
+    }
+
+
+def cmd_cloudsave(args: str, state, config) -> bool:
+    """Sync sessions to GitHub Gist.
+
+    /cloudsave setup <token>   — configure GitHub Personal Access Token
+    /cloudsave                 — upload current session to Gist
+    /cloudsave push [desc]     — same as above with optional description
+    /cloudsave auto on|off     — toggle auto-upload on /exit
+    /cloudsave list            — list your nano-claude-code Gists
+    /cloudsave load <gist_id>  — download and load a session from Gist
+    """
+    from cloudsave import validate_token, upload_session, list_sessions, download_session
+    from config import save_config
+
+    parts = args.strip().split(None, 1)
+    sub = parts[0].lower() if parts else ""
+    rest = parts[1] if len(parts) > 1 else ""
+
+    token = config.get("gist_token", "")
+
+    # ── setup ──────────────────────────────────────────────────────────────────
+    if sub == "setup":
+        if not rest:
+            err("Usage: /cloudsave setup <GitHub_Personal_Access_Token>")
+            return True
+        new_token = rest.strip()
+        info("Validating token…")
+        valid, msg = validate_token(new_token)
+        if not valid:
+            err(msg)
+            return True
+        config["gist_token"] = new_token
+        save_config(config)
+        ok(f"GitHub token saved (logged in as: {msg}). Cloud sync is ready.")
+        return True
+
+    # ── auto on/off ────────────────────────────────────────────────────────────
+    if sub == "auto":
+        flag = rest.strip().lower()
+        if flag == "on":
+            config["cloudsave_auto"] = True
+            save_config(config)
+            ok("Auto cloud-sync ON — session will be uploaded to Gist on /exit.")
+        elif flag == "off":
+            config["cloudsave_auto"] = False
+            save_config(config)
+            ok("Auto cloud-sync OFF.")
+        else:
+            status = "ON" if config.get("cloudsave_auto") else "OFF"
+            info(f"Auto cloud-sync is currently {status}. Use 'on' or 'off' to toggle.")
+        return True
+
+    # ── remaining subcommands require a token ─────────────────────────────────
+    if not token:
+        err("No GitHub token configured. Run: /cloudsave setup <token>")
+        info("Get a token at https://github.com/settings/tokens (needs 'gist' scope)")
+        return True
+
+    # ── list ───────────────────────────────────────────────────────────────────
+    if sub == "list":
+        info("Fetching your nano-claude-code sessions from GitHub Gist…")
+        sessions, err_msg = list_sessions(token)
+        if err_msg:
+            err(err_msg)
+            return True
+        if not sessions:
+            info("No sessions found. Upload one with /cloudsave")
+            return True
+        info(f"Found {len(sessions)} session(s):")
+        for s in sessions:
+            ts = s["updated_at"][:16].replace("T", " ")
+            desc = s["description"].replace("[nano-claude-code]", "").strip()
+            print(f"  {clr(s['id'][:8], 'yellow')}…  {clr(ts, 'dim')}  {desc or s['files'][0]}")
+        return True
+
+    # ── load ───────────────────────────────────────────────────────────────────
+    if sub == "load":
+        gist_id = rest.strip()
+        if not gist_id:
+            err("Usage: /cloudsave load <gist_id>")
+            return True
+        info(f"Downloading session {gist_id[:8]}… from Gist…")
+        data, err_msg = download_session(token, gist_id)
+        if err_msg:
+            err(err_msg)
+            return True
+        state.messages = data.get("messages", [])
+        state.turn_count = data.get("turn_count", 0)
+        state.total_input_tokens = data.get("total_input_tokens", 0)
+        state.total_output_tokens = data.get("total_output_tokens", 0)
+        ok(f"Session loaded from Gist ({len(state.messages)} messages).")
+        return True
+
+    # ── push (default when no subcommand or sub == "push") ────────────────────
+    if sub in ("", "push"):
+        description = rest.strip() if sub == "push" else ""
+        if not state.messages:
+            info("Nothing to save — conversation is empty.")
+            return True
+        info("Uploading session to GitHub Gist…")
+        session_data = _build_session_data(state)
+        existing_id = config.get("cloudsave_last_gist_id")
+        gist_id, err_msg = upload_session(session_data, token, description, existing_id)
+        if err_msg:
+            err(f"Upload failed: {err_msg}")
+            return True
+        config["cloudsave_last_gist_id"] = gist_id
+        save_config(config)
+        ok(f"Session uploaded → https://gist.github.com/{gist_id}")
+        return True
+
+    err(f"Unknown subcommand '{sub}'. Run /help for usage.")
+    return True
+
+
 def cmd_exit(_args: str, _state, _config) -> bool:
+    if sys.stdin.isatty() and sys.platform != "win32":
+        sys.stdout.write("\x1b[?2004l")  # disable bracketed paste mode
+        sys.stdout.flush()
     ok("Goodbye!")
-    save_latest("", _state, _config)  # auto-save to mr_sessions for easy resuming
+    save_latest("", _state, _config)
+    # Auto cloud-sync if enabled
+    if _config.get("cloudsave_auto") and _config.get("gist_token") and _state.messages:
+        info("Auto cloud-sync: uploading session to Gist…")
+        from cloudsave import upload_session
+        from config import save_config
+        session_data = _build_session_data(_state)
+        gist_id, err_msg = upload_session(
+            session_data, _config["gist_token"],
+            existing_gist_id=_config.get("cloudsave_last_gist_id"),
+        )
+        if err_msg:
+            err(f"Cloud sync failed: {err_msg}")
+        else:
+            _config["cloudsave_last_gist_id"] = gist_id
+            save_config(_config)
+            ok(f"Session synced → https://gist.github.com/{gist_id}")
     sys.exit(0)
 
 def cmd_memory(args: str, _state, _config) -> bool:
     from memory import search_memory, load_index
     from memory.scan import scan_all_memories, format_memory_manifest, memory_freshness_text
 
-    if args.strip():
-        results = search_memory(args.strip())
+    stripped = args.strip()
+
+    # /memory consolidate  — extract long-term memories from current session
+    if stripped == "consolidate":
+        from memory import consolidate_session
+        msgs = _state.get("messages", [])
+        info("  Analyzing session for long-term memories…")
+        saved = consolidate_session(msgs, _config)
+        if saved:
+            info(f"  ✓ Consolidated {len(saved)} memory/memories: {', '.join(saved)}")
+        else:
+            info("  Nothing new worth saving (session too short, or nothing extractable).")
+        return True
+
+    if stripped:
+        results = search_memory(stripped)
         if not results:
-            info(f"No memories matching '{args.strip()}'")
+            info(f"No memories matching '{stripped}'")
             return True
-        info(f"  {len(results)} result(s) for '{args.strip()}':")
+        info(f"  {len(results)} result(s) for '{stripped}':")
         for m in results:
-            info(f"  [{m.type:9s}|{m.scope:7s}] {m.name}: {m.description}")
+            conf_tag = f" conf:{m.confidence:.0%}" if m.confidence < 1.0 else ""
+            src_tag = f" src:{m.source}" if m.source and m.source != "user" else ""
+            info(f"  [{m.type:9s}|{m.scope:7s}] {m.name}{conf_tag}{src_tag}: {m.description}")
             info(f"    {m.content[:120]}{'...' if len(m.content) > 120 else ''}")
         return True
 
@@ -1126,6 +1771,46 @@ def cmd_voice(args: str, state, config) -> bool:
     return ("__voice__", text)
 
 
+def cmd_image(args: str, state, config) -> Union[bool, tuple]:
+    """Grab image from clipboard and send to vision model with optional prompt."""
+    import sys as _sys
+    try:
+        from PIL import ImageGrab
+        import io, base64
+    except ImportError:
+        err("Pillow is required for /image. Install with: pip install nano-claude-code[vision]")
+        if _sys.platform == "linux":
+            err("On Linux, clipboard support also requires xclip: sudo apt install xclip")
+        return True
+
+    img = ImageGrab.grabclipboard()
+    if img is None:
+        if _sys.platform == "linux":
+            err("No image found in clipboard. On Linux, xclip is required (sudo apt install xclip). "
+                "Copy an image with Flameshot, GNOME Screenshot, or: xclip -selection clipboard -t image/png -i file.png")
+        elif _sys.platform == "darwin":
+            err("No image found in clipboard. Copy an image first "
+                "(Cmd+Ctrl+Shift+4 captures a screenshot region to clipboard).")
+        else:
+            err("No image found in clipboard. Copy an image first "
+                "(Win+Shift+S captures a screenshot region to clipboard).")
+        return True
+
+    # Convert to base64 PNG
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    size_kb = len(buf.getvalue()) / 1024
+
+    info(f"📷 Clipboard image captured ({size_kb:.0f} KB, {img.size[0]}x{img.size[1]})")
+
+    # Store in config for agent.py to pick up
+    config["_pending_image"] = b64
+
+    prompt = args.strip() if args.strip() else "What do you see in this image? Describe it in detail."
+    return ("__image__", prompt)
+
+
 COMMANDS = {
     "help":        cmd_help,
     "clear":       cmd_clear,
@@ -1148,7 +1833,10 @@ COMMANDS = {
     "tasks":       cmd_tasks,
     "task":        cmd_tasks,
     "proactive":   cmd_proactive,
+    "cloudsave":   cmd_cloudsave,
     "voice":       cmd_voice,
+    "image":       cmd_image,
+    "brainstorm":  cmd_brainstorm,
     "exit":        cmd_exit,
     "quit":        cmd_exit,
     "resume":      cmd_resume
@@ -1167,8 +1855,8 @@ def handle_slash(line: str, state, config) -> Union[bool, tuple]:
     handler = COMMANDS.get(cmd)
     if handler:
         result = handler(args, state, config)
-        # cmd_voice returns ("__voice__", text) to ask the REPL to run_query
-        if isinstance(result, tuple) and result[0] == "__voice__":
+        # cmd_voice/cmd_image/cmd_brainstorm return sentinels to ask the REPL to run_query
+        if isinstance(result, tuple) and result[0] in ("__voice__", "__image__", "__brainstorm__"):
             return result
         return True
 
@@ -1186,6 +1874,42 @@ def handle_slash(line: str, state, config) -> Union[bool, tuple]:
 
 # ── Input history setup ────────────────────────────────────────────────────
 
+# Descriptions and subcommands for each slash command (used by Tab completion)
+_CMD_META: dict[str, tuple[str, list[str]]] = {
+    "help":        ("Show help",                          []),
+    "clear":       ("Clear conversation history",         []),
+    "model":       ("Show / set model",                   []),
+    "config":      ("Show / set config key=value",        []),
+    "save":        ("Save session to file",               []),
+    "load":        ("Load a saved session",               []),
+    "history":     ("Show conversation history",          []),
+    "context":     ("Show token-context usage",           []),
+    "cost":        ("Show cost estimate",                 []),
+    "verbose":     ("Toggle verbose output",              []),
+    "thinking":    ("Toggle extended thinking",           []),
+    "permissions": ("Set permission mode",                ["auto", "accept-all", "manual"]),
+    "cwd":         ("Show / change working directory",    []),
+    "skills":      ("List available skills",              []),
+    "memory":      ("Search / list / consolidate memories", ["consolidate"]),
+    "agents":      ("Show background agents",             []),
+    "mcp":         ("Manage MCP servers",                 ["reload", "add", "remove"]),
+    "plugin":      ("Manage plugins",                     ["install", "uninstall", "enable",
+                                                           "disable", "disable-all", "update",
+                                                           "recommend", "info"]),
+    "tasks":       ("Manage tasks",                       ["create", "delete", "get", "clear",
+                                                           "todo", "in-progress", "done", "blocked"]),
+    "task":        ("Manage tasks (alias)",               ["create", "delete", "get", "clear",
+                                                           "todo", "in-progress", "done", "blocked"]),
+    "proactive":   ("Manage proactive background watcher", ["off"]),
+    "cloudsave":   ("Cloud-sync sessions to GitHub Gist", ["setup", "auto", "list", "load", "push"]),
+    "voice":       ("Voice input (record → STT)",         ["lang", "status"]),
+    "image":       ("Send clipboard image to model",      []),
+    "exit":        ("Exit nano-claude-code",              []),
+    "quit":        ("Exit (alias for /exit)",             []),
+    "resume":      ("Resume last session",                []),
+}
+
+
 def setup_readline(history_file: Path):
     if readline is None:
         return
@@ -1196,11 +1920,49 @@ def setup_readline(history_file: Path):
     readline.set_history_length(1000)
     atexit.register(readline.write_history_file, str(history_file))
 
-    # Tab-complete slash commands
-    commands = [f"/{c}" for c in COMMANDS]
+    # Allow "/" to be part of a completion token so "/model" is one word
+    delims = readline.get_completer_delims().replace("/", "")
+    readline.set_completer_delims(delims)
+
     def completer(text: str, state: int):
-        matches = [c for c in commands if c.startswith(text)]
-        return matches[state] if state < len(matches) else None
+        line = readline.get_line_buffer()
+
+        # ── Completing a command name: line has "/" but no space yet ──────────
+        if "/" in line and " " not in line:
+            matches = sorted(f"/{c}" for c in _CMD_META if f"/{c}".startswith(text))
+            return matches[state] if state < len(matches) else None
+
+        # ── Completing a subcommand: "/cmd <partial>" ─────────────────────────
+        if line.startswith("/") and " " in line:
+            cmd = line.split()[0][1:]          # e.g. "mcp"
+            if cmd in _CMD_META:
+                subs = _CMD_META[cmd][1]
+                matches = sorted(s for s in subs if s.startswith(text))
+                return matches[state] if state < len(matches) else None
+
+        return None
+
+    def display_matches(substitution: str, matches: list, longest: int):
+        """Custom display: show command descriptions alongside each match."""
+        sys.stdout.write("\n")
+        line = readline.get_line_buffer()
+        is_cmd = "/" in line and " " not in line
+
+        if is_cmd:
+            col_w = max(len(m) for m in matches) + 2
+            for m in sorted(matches):
+                cmd = m[1:]
+                desc = _CMD_META.get(cmd, ("", []))[0]
+                subs = _CMD_META.get(cmd, ("", []))[1]
+                sub_hint = ("  [" + ", ".join(subs[:4])
+                            + ("…" if len(subs) > 4 else "") + "]") if subs else ""
+                sys.stdout.write(f"  \033[36m{m:<{col_w}}\033[0m  {desc}{sub_hint}\n")
+        else:
+            for m in sorted(matches):
+                sys.stdout.write(f"  {m}\n")
+        sys.stdout.flush()
+
+    readline.set_completion_display_matches_hook(display_matches)
     readline.set_completer(completer)
     readline.parse_and_bind("tab: complete")
 
@@ -1225,15 +1987,45 @@ def repl(config: dict, initial_prompt: str = None):
         prov_clr  = clr(f"({pname})", "dim")
         pmode     = clr(config.get("permission_mode", "auto"), "yellow")
         ver_clr   = clr(f"v{VERSION}", "green")
-        print(clr("╭─ Nano Claude Code ", "dim") + ver_clr + clr(" ─────────────────────────╮", "dim"))
-        print(clr("│  Model: ", "dim") + model_clr + " " + prov_clr)
-        print(clr("│  Permissions: ", "dim") + pmode)
-        print(clr("│  /model to switch provider · /help for commands │", "dim"))
-        print(clr("╰──────────────────────────────────────────────────╯", "dim"))
+        _top_left  = "╭─ Nano Claude Code "
+        _top_right = " ─────────────────────────╮"
+        _box_w     = len(_top_left) + len(f"v{VERSION}") + len(_top_right)
+
+        def _box_row(content: str) -> str:
+            vis_len = len(re.sub(r'\x1b\[[0-9;]*m', '', content))
+            pad     = _box_w - vis_len - 1
+            return content + " " * max(0, pad) + clr("│", "dim")
+
+        print(clr(_top_left, "dim") + ver_clr + clr(_top_right, "dim"))
+        print(_box_row(clr("│  Model: ", "dim") + model_clr + " " + prov_clr))
+        print(_box_row(clr("│  Permissions: ", "dim") + pmode))
+        print(_box_row(clr("│  /model to switch provider · /help for commands", "dim")))
+        print(clr("╰" + "─" * (_box_w - 2) + "╯", "dim"))
+
+        # Show active non-default settings
+        active_flags = []
+        if config.get("verbose"):
+            active_flags.append("verbose")
+        if config.get("thinking"):
+            active_flags.append("thinking")
+        if config.get("_proactive_enabled"):
+            active_flags.append("proactive")
+        if active_flags:
+            flags_str = " · ".join(clr(f, "green") for f in active_flags)
+            info(f"Active: {flags_str}")
         print()
 
-    query_lock = threading.Lock()
-    
+    query_lock = threading.RLock()
+
+    # Apply rich_live config: disable in-place Live streaming if terminal has issues.
+    # Auto-detect SSH sessions and dumb terminals where ANSI cursor-up doesn't work.
+    import os as _os
+    _in_ssh = bool(_os.environ.get("SSH_CLIENT") or _os.environ.get("SSH_TTY"))
+    _is_dumb = (console is not None and getattr(console, "is_dumb_terminal", False))
+    _rich_live_default = not _in_ssh and not _is_dumb
+    global _RICH_LIVE
+    _RICH_LIVE = _RICH and config.get("rich_live", _rich_live_default)
+
     # Initialize proactive polling state in config (avoids module-level globals)
     config.setdefault("_proactive_enabled", False)
     config.setdefault("_proactive_interval", 300)
@@ -1256,54 +2048,122 @@ def repl(config: dict, initial_prompt: str = None):
                 print(clr("\n\n[Background Event Triggered]", "yellow"))
 
             print(clr("\n╭─ Claude ", "dim") + clr("●", "green") + clr(" ─────────────────────────", "dim"))
-            if not _RICH:
-                print(clr("│ ", "dim"), end="", flush=True)
 
             thinking_started = False
+            spinner_shown = True
+            _start_tool_spinner()
+            _pre_tool_text = []   # text chunks before a tool call
+            _post_tool = False    # true after a tool has executed
+            _post_tool_buf = []   # text chunks after tool (to check for duplicates)
+            _duplicate_suppressed = False
 
-            for event in run(user_input, state, config, system_prompt):
-                if isinstance(event, TextChunk):
-                    # stream_text auto-starts Live on first chunk when Rich available
-                    stream_text(event.text)
+            try:
+                for event in run(user_input, state, config, system_prompt):
+                    # Stop spinner only when visible output arrives
+                    if spinner_shown:
+                        show_thinking = isinstance(event, ThinkingChunk) and verbose
+                        if isinstance(event, TextChunk) or show_thinking or isinstance(event, ToolStart):
+                            _stop_tool_spinner()
+                            spinner_shown = False
+                            # Restore │ prefix for first text chunk in plain-text (non-Rich) mode
+                            if isinstance(event, TextChunk) and not _RICH and not _post_tool:
+                                print(clr("│ ", "dim"), end="", flush=True)
 
-                elif isinstance(event, ThinkingChunk):
-                    if verbose:
-                        flush_response()  # stop Live before printing static thinking
-                        if not thinking_started:
-                            print(clr("\n  [thinking]", "dim"))
-                            thinking_started = True
-                        stream_thinking(event.text, verbose)
+                    if isinstance(event, TextChunk):
+                        if thinking_started:
+                            print("\033[0m\n")  # Reset dim ANSI + break line after thinking block
+                            thinking_started = False
 
-                elif isinstance(event, ToolStart):
-                    flush_response()  # stop Live, commit text so far
-                    print_tool_start(event.name, event.inputs, verbose)
+                        if _post_tool and not _duplicate_suppressed:
+                            # Buffer post-tool text to check for duplicates
+                            _post_tool_buf.append(event.text)
+                            post_so_far = "".join(_post_tool_buf).strip()
+                            pre_text = "".join(_pre_tool_text).strip()
+                            # If post-tool text matches start of pre-tool text, suppress
+                            if pre_text and pre_text.startswith(post_so_far):
+                                if len(post_so_far) >= len(pre_text):
+                                    # Full duplicate confirmed — suppress entirely
+                                    _duplicate_suppressed = True
+                                    _post_tool_buf.clear()
+                                continue
+                            elif post_so_far and not pre_text.startswith(post_so_far):
+                                # Not a duplicate — flush buffered text
+                                for chunk in _post_tool_buf:
+                                    stream_text(chunk)
+                                _post_tool_buf.clear()
+                                _duplicate_suppressed = True  # stop checking
+                                continue
 
-                elif isinstance(event, PermissionRequest):
-                    flush_response()  # stop Live before interactive prompt
-                    event.granted = ask_permission_interactive(event.description, config)
-                    # Live will restart automatically on next TextChunk
+                        # stream_text auto-starts Live on first chunk when Rich available
+                        if not _post_tool:
+                            _pre_tool_text.append(event.text)
+                        stream_text(event.text)
 
-                elif isinstance(event, ToolEnd):
-                    print_tool_end(event.name, event.result, verbose)
-                    if not _RICH:
-                        print(clr("│ ", "dim"), end="", flush=True)
-                    # Live will restart automatically on next TextChunk
+                    elif isinstance(event, ThinkingChunk):
+                        if verbose:
+                            if not thinking_started:
+                                flush_response()  # stop Live before printing static thinking
+                                print(clr("  [thinking]", "dim"))
+                                thinking_started = True
+                            stream_thinking(event.text, verbose)
 
-                elif isinstance(event, TurnDone):
-                    if verbose:
-                        flush_response()  # stop Live before printing token info
-                        print(clr(
-                            f"\n  [tokens: +{event.input_tokens} in / "
-                            f"+{event.output_tokens} out]", "dim"
-                        ))
+                    elif isinstance(event, ToolStart):
+                        flush_response()
+                        print_tool_start(event.name, event.inputs, verbose)
 
+                    elif isinstance(event, PermissionRequest):
+                        _stop_tool_spinner()
+                        flush_response()
+                        event.granted = ask_permission_interactive(event.description, config)
+                        # Live will restart automatically on next TextChunk
+
+                    elif isinstance(event, ToolEnd):
+                        print_tool_end(event.name, event.result, verbose)
+                        _post_tool = True
+                        _post_tool_buf.clear()
+                        _duplicate_suppressed = False
+                        if not _RICH:
+                            print(clr("│ ", "dim"), end="", flush=True)
+                        # Restart spinner while waiting for model's next action
+                        _change_spinner_phrase()
+                        _start_tool_spinner()
+                        spinner_shown = True
+
+                    elif isinstance(event, TurnDone):
+                        _stop_tool_spinner()
+                        spinner_shown = False
+                        if verbose:
+                            flush_response()  # stop Live before printing token info
+                            print(clr(
+                                f"\n  [tokens: +{event.input_tokens} in / "
+                                f"+{event.output_tokens} out]", "dim"
+                            ))
+            except Exception as e:
+                _stop_tool_spinner()
+                import urllib.error
+                # Catch 404 Not Found (Ollama model missing)
+                if isinstance(e, urllib.error.HTTPError) and e.code == 404:
+                    from providers import detect_provider
+                    if detect_provider(config["model"]) == "ollama":
+                        flush_response()
+                        err(f"Ollama model '{config['model']}' not found.")
+                        if _interactive_ollama_picker(config):
+                            # Remove the user message added by run() before retrying
+                            if state.messages and state.messages[-1]["role"] == "user":
+                                state.messages.pop()
+                            return run_query(user_input, is_background)
+                        # User cancelled picker — abort gracefully without crashing
+                        return
+                raise e
+
+            _stop_tool_spinner()
             flush_response()  # stop Live, commit any remaining text
             print(clr("╰──────────────────────────────────────────────", "dim"))
             print()
             
             # If this was a background task, we redraw the prompt for the user
             if is_background:
-                print(clr("\n[claude-code-local] ❯ ", "yellow"), end="", flush=True)
+                print(clr("\n[claude-code-local] » ", "yellow"), end="", flush=True)
 
         # Drain any AskUserQuestion prompts raised during this turn
         from tools import drain_pending_questions
@@ -1321,19 +2181,126 @@ def repl(config: dict, initial_prompt: str = None):
             print()
         return
 
+    # ── Bracketed paste mode ──────────────────────────────────────────────
+    # Terminals that support bracketed paste wrap pasted content with
+    #   ESC[200~  (start)  …content…  ESC[201~  (end)
+    # This lets us collect the entire paste as one unit regardless of
+    # how many newlines it contains, without any fragile timing tricks.
+    _PASTE_START = "\x1b[200~"
+    _PASTE_END   = "\x1b[201~"
+    _bpm_active  = sys.stdin.isatty() and sys.platform != "win32"
+
+    if _bpm_active:
+        sys.stdout.write("\x1b[?2004h")   # enable bracketed paste mode
+        sys.stdout.flush()
+
+    def _read_input(prompt: str) -> str:
+        """Read one user turn, collecting multi-line pastes as a single string.
+
+        Strategy (in priority order):
+        1. Bracketed paste mode (ESC[200~ … ESC[201~): reliable, zero latency,
+           supported by virtually all modern terminal emulators on Linux/macOS.
+        2. Timing fallback: for terminals without bracketed paste support, read
+           any data buffered in stdin within a short window after the first line.
+        3. Plain input(): for pipes / non-interactive use / Windows.
+        """
+        import select as _sel
+
+        # ── Phase 1: get first line via readline (history, line-edit intact) ──
+        first = input(prompt)
+
+        # ── Phase 2: bracketed paste? ─────────────────────────────────────────
+        if _PASTE_START in first:
+            # Strip leading marker; first line may already contain paste end too
+            body = first.replace(_PASTE_START, "")
+            if _PASTE_END in body:
+                # Single-line paste (no embedded newlines)
+                return body.replace(_PASTE_END, "").strip()
+
+            # Multi-line paste: keep reading until end marker arrives
+            lines = [body]
+            while True:
+                ready = _sel.select([sys.stdin], [], [], 2.0)[0]
+                if not ready:
+                    break  # safety timeout — paste stalled
+                raw = sys.stdin.readline()
+                if not raw:
+                    break
+                raw = raw.rstrip("\n")
+                if _PASTE_END in raw:
+                    tail = raw.replace(_PASTE_END, "")
+                    if tail:
+                        lines.append(tail)
+                    break
+                lines.append(raw)
+
+            result = "\n".join(lines).strip()
+            n = result.count("\n") + 1
+            info(f"  (pasted {n} line{'s' if n > 1 else ''})")
+            return result
+
+        # ── Phase 3: timing fallback ─────────────────────────────────────────
+        if sys.stdin.isatty():
+            lines = [first]
+            import time as _time
+
+            if sys.platform == "win32":
+                # Windows: use msvcrt.kbhit() to detect buffered paste data
+                import msvcrt
+                deadline = 0.12   # wider window for Windows paste latency
+                chunk_to = 0.03
+                t0 = _time.monotonic()
+                while (_time.monotonic() - t0) < deadline:
+                    _time.sleep(chunk_to)
+                    if not msvcrt.kbhit():
+                        break
+                    raw = sys.stdin.readline()
+                    if not raw:
+                        break
+                    stripped = raw.rstrip("\n").rstrip("\r")
+                    lines.append(stripped)
+                    t0 = _time.monotonic()  # extend while data keeps coming
+            else:
+                # Unix: use select() for precise timing
+                deadline = 0.06
+                chunk_to = 0.025
+                t0 = _time.monotonic()
+                while (_time.monotonic() - t0) < deadline:
+                    ready = _sel.select([sys.stdin], [], [], chunk_to)[0]
+                    if not ready:
+                        break
+                    raw = sys.stdin.readline()
+                    if not raw:
+                        break
+                    stripped = raw.rstrip("\n")
+                    if _PASTE_END in stripped:
+                        break
+                    lines.append(stripped)
+                    t0 = _time.monotonic()
+
+            if len(lines) > 1:
+                result = "\n".join(lines).strip()
+                info(f"  (pasted {len(lines)} lines)")
+                return result
+
+        return first
+
     while True:
         # Show notifications for background agents that finished
         _print_background_notifications()
         try:
             cwd_short = Path.cwd().name
-            prompt = clr(f"\n[{cwd_short}] ", "dim") + clr("❯ ", "cyan", "bold")
-            user_input = input(prompt).strip()
+            prompt = clr(f"\n[{cwd_short}] ", "dim") + clr("» ", "cyan", "bold")
+            user_input = _read_input(prompt)
         except (EOFError, KeyboardInterrupt):
             print()
             try:
                 save_latest("", state, config)
             except Exception as e:
                 warn(f"Auto-save failed on exit: {e}")
+            if _bpm_active:
+                sys.stdout.write("\x1b[?2004l")  # disable bracketed paste mode
+                sys.stdout.flush()
             ok("Goodbye!")
             sys.exit(0)
 
@@ -1347,6 +2314,24 @@ def repl(config: dict, initial_prompt: str = None):
                 _, voice_text = result
                 try:
                     run_query(voice_text)
+                except KeyboardInterrupt:
+                    print(clr("\n  (interrupted)", "yellow"))
+                continue
+            # Image sentinel: ("__image__", prompt_text)
+            if result[0] == "__image__":
+                _, image_prompt = result
+                try:
+                    run_query(image_prompt)
+                except KeyboardInterrupt:
+                    print(clr("\n  (interrupted)", "yellow"))
+                continue
+            # Brainstorm sentinel: ("__brainstorm__", synthesis_prompt, out_file)
+            if result[0] == "__brainstorm__":
+                _, brain_prompt, brain_out_file = result
+                print(clr("\n  ── Analysis from Main Agent ──", "dim"))
+                try:
+                    run_query(brain_prompt)
+                    _save_synthesis(state, brain_out_file)
                 except KeyboardInterrupt:
                     print(clr("\n  (interrupted)", "yellow"))
                 continue
@@ -1409,7 +2394,16 @@ def main():
 
     # Apply CLI overrides first (so key check uses the right provider)
     if args.model:
-        config["model"] = args.model.replace(":", "/", 1)
+        m = args.model
+        # Convert "provider:model" → "provider/model" only when left side is a known provider
+        # (e.g. "ollama:llama3.3" → "ollama/llama3.3"), but leave version tags intact
+        # (e.g. "ollama/qwen3.5:35b" must NOT become "ollama/qwen3.5/35b")
+        if "/" not in m and ":" in m:
+            from providers import PROVIDERS
+            left, _ = m.split(":", 1)
+            if left in PROVIDERS:
+                m = m.replace(":", "/", 1)
+        config["model"] = m
     if args.accept_all:
         config["permission_mode"] = "accept-all"
     if args.verbose:

@@ -21,6 +21,7 @@ Model string formats:
 """
 from __future__ import annotations
 import json
+import urllib.request
 from typing import Generator
 
 # ── Provider registry ──────────────────────────────────────────────────────
@@ -275,14 +276,23 @@ def messages_to_anthropic(messages: list) -> list:
     return result
 
 
-def messages_to_openai(messages: list) -> list:
-    """Convert neutral messages → OpenAI API format."""
+def messages_to_openai(messages: list, pass_images: bool = False) -> list:
+    """Convert neutral messages → OpenAI API format.
+
+    Args:
+        pass_images: if True, forward the 'images' list in user messages
+                     (Ollama /api/chat native format). Must be False for
+                     OpenAI/Gemini/Qwen/etc. which use a different image schema.
+    """
     result = []
     for m in messages:
         role = m["role"]
 
         if role == "user":
-            result.append({"role": "user", "content": m["content"]})
+            msg_out = {"role": "user", "content": m["content"]}
+            if pass_images and m.get("images"):
+                msg_out["images"] = m["images"]
+            result.append(msg_out)
 
         elif role == "assistant":
             msg: dict = {"role": "assistant", "content": m.get("content") or None}
@@ -408,9 +418,12 @@ def stream_openai_compat(
         "stream":   True,
     }
 
-    # Pass num_ctx for local Ollama/LM Studio endpoints so conversation history isn't truncated
-    if "11434" in base_url or detect_provider(model) in ("ollama", "lmstudio"):
-        ctx_limit = PROVIDERS.get(detect_provider(model), {}).get("context_limit", 128000)
+    # Pass num_ctx for known Ollama/LM Studio ports only — avoids matching other local servers (e.g. vLLM on :8000)
+    _is_local_ollama = "11434" in base_url
+    _is_lmstudio     = "1234" in base_url and ("lmstudio" in base_url or "localhost" in base_url or "127.0.0.1" in base_url)
+    if _is_local_ollama or _is_lmstudio:
+        prov = detect_provider(model)
+        ctx_limit = PROVIDERS.get(prov if prov in ("ollama", "lmstudio") else "ollama", {}).get("context_limit", 128000)
         kwargs["extra_body"] = {"options": {"num_ctx": ctx_limit}}
 
     if tool_schemas and not config.get("no_tools"):
@@ -426,10 +439,6 @@ def stream_openai_compat(
     text          = ""
     tool_buf: dict = {}   # index → {id, name, args_str}
     in_tok = out_tok = 0
-
-    import json
-    with open("debug_payload.json", "w", encoding="utf-8") as _f:
-        _f.write(json.dumps(kwargs, indent=2, default=str))
 
     stream = client.chat.completions.create(**kwargs)
     for chunk in stream:
@@ -492,10 +501,8 @@ def stream_ollama(
     tool_schemas: list,
     config: dict,
 ) -> Generator:
-    import urllib.request
-    import json
-    
-    oai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages)
+    # pass_images=True: Ollama /api/chat accepts base64 images natively in the message
+    oai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages, pass_images=True)
     
     # Ollama requires tool arguments as dict objects, not strings. OpenAI uses strings.
     for m in oai_messages:
@@ -540,6 +547,11 @@ def stream_ollama(
                 continue
             
             msg = data.get("message", {})
+            
+            # Ollama native reasoning models stream thoughts here
+            if "thinking" in msg and msg["thinking"]:
+                yield ThinkingChunk(msg["thinking"])
+                
             if "content" in msg and msg["content"]:
                 text += msg["content"]
                 yield TextChunk(msg["content"])
@@ -602,3 +614,15 @@ def stream(
         yield from stream_openai_compat(
             api_key, base_url, model_name, system, messages, tool_schemas, config
         )
+
+
+def list_ollama_models(base_url: str) -> list[str]:
+    """Fetch locally available model tags from Ollama server."""
+    try:
+        url = f"{base_url.rstrip('/')}/api/tags"
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            # Ollama returns {"models": [{"name": "llama3:latest", ...}, ...]}
+            return [m["name"] for m in data.get("models", [])]
+    except Exception:
+        return []
