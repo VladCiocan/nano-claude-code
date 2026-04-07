@@ -1,4 +1,4 @@
-"""Tool definitions and implementations for nano claude."""
+"""Tool definitions and implementations for CheetahClaws."""
 import json
 import os
 import re
@@ -16,6 +16,21 @@ from tool_registry import execute_tool as _registry_execute
 # The main REPL loop drains _pending_questions and fills _question_answers.
 _pending_questions: list[dict] = []   # [{id, question, options, allow_freetext, event, result_holder}]
 _ask_lock = threading.Lock()
+
+# ── Telegram turn detection (thread-local) ─────────────────────────────────
+# Using thread-local storage instead of a shared config key prevents race
+# conditions when slash commands run in their own daemon threads while the
+# Telegram poll loop and the main REPL loop continue on other threads.
+_tg_thread_local = threading.local()
+
+
+def _is_in_tg_turn(config: dict) -> bool:
+    """Return True if the *current thread* is handling a Telegram interaction.
+
+    Checks the thread-local flag first (set by the slash-command runner thread),
+    then falls back to the config key (set by the main REPL for _bg_runner turns).
+    """
+    return getattr(_tg_thread_local, "active", False) or bool(config.get("_in_telegram_turn", False))
 
 # ── Tool JSON schemas (sent to Claude API) ─────────────────────────────────
 
@@ -771,7 +786,7 @@ def _ask_user_question(
     """
     Block the agent loop and surface a question to the user in the terminal.
 
-    The REPL loop (nano_claude.py) periodically calls drain_pending_questions()
+    The REPL loop (cheetahclaws.py) periodically calls drain_pending_questions()
     to render any questions and collect answers.  We use a threading.Event to
     block this call until the user responds.
     """
@@ -795,7 +810,39 @@ def _ask_user_question(
     return "(no answer — timeout)"
 
 
-def drain_pending_questions() -> bool:
+def ask_input_interactive(prompt: str, config: dict, menu_text: str = None) -> str:
+    """Prompt the user for input, routing to Telegram if in a Telegram turn.
+    If menu_text is provided, it is sent ahead of the prompt."""
+    is_tg = _is_in_tg_turn(config)
+    if is_tg and "_tg_send_callback" in config:
+        token = config.get("telegram_token")
+        chat_id = config.get("telegram_chat_id")
+        import re, threading
+        clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt).strip()
+
+        payload = ""
+        if menu_text:
+            clean_menu = re.sub(r'\x1b\[[0-9;]*m', '', menu_text).strip()
+            payload += f"{clean_menu}\n\n"
+        payload += f"❓ *Input Required*\n{clean_prompt}"
+
+        config["_tg_send_callback"](token, chat_id, payload)
+
+        evt = threading.Event()
+        config["_tg_input_event"] = evt
+        evt.wait()
+
+        text = config.pop("_tg_input_value", "").strip()
+        config.pop("_tg_input_event", None)
+        return text
+    else:
+        try:
+            return input(prompt)
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return ""
+
+def drain_pending_questions(config: dict) -> bool:
     """
     Called by the REPL loop after each streaming turn.
     Renders pending questions and collects user input.
@@ -833,10 +880,8 @@ def drain_pending_questions() -> bool:
             print()
 
             while True:
-                try:
-                    raw = input("Your choice (number or text): ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    raw = ""
+                raw = ask_input_interactive("Your choice (number or text): ", config).strip()
+                if not raw:
                     break
 
                 if raw.isdigit():
@@ -845,20 +890,18 @@ def drain_pending_questions() -> bool:
                         raw = options[idx - 1]["label"]
                         break
                     elif idx == 0 and allow_ft:
-                        try:
-                            raw = input("Your answer: ").strip()
-                        except (EOFError, KeyboardInterrupt):
-                            raw = ""
+                        raw = ask_input_interactive("Your answer: ", config).strip()
                         break
+                    else:
+                        print(f"Invalid option: {idx}")
+                        raw = ""
+                        continue
                 elif allow_ft:
                     break  # accept free text directly
         else:
             # Free-text only
             print()
-            try:
-                raw = input("Your answer: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                raw = ""
+            raw = ask_input_interactive("Your answer: ", config).strip()
 
         result.append(raw)
         event.set()
@@ -870,7 +913,7 @@ def _sleeptimer(seconds: int, config: dict) -> str:
     import threading
     cb = config.get("_run_query_callback")
     if not cb:
-        return "Error: Internal callback missing, nano_claude did not provide _run_query_callback"
+        return "Error: Internal callback missing, cheetahclaws did not provide _run_query_callback"
         
     def worker():
         import time
@@ -1081,3 +1124,119 @@ except Exception as _plugin_err:
 # ── Task tools (TaskCreate, TaskUpdate, TaskGet, TaskList) ─────────────────────
 # task/tools.py registers all four tools into the central registry on import.
 import task.tools as _task_tools  # noqa: F401
+
+
+# ── Checkpoint hooks (backup files before Write/Edit/NotebookEdit) ───────────
+from checkpoint.hooks import install_hooks as _install_checkpoint_hooks
+_install_checkpoint_hooks()
+
+
+# ── Plan mode tools (EnterPlanMode / ExitPlanMode) ──────────────────────────
+
+def _enter_plan_mode(params: dict, config: dict) -> str:
+    """Enter plan mode: read-only except plan file."""
+    if config.get("permission_mode") == "plan":
+        return "Already in plan mode. Write your plan to the plan file, then call ExitPlanMode."
+
+    session_id = config.get("_session_id", "default")
+    plans_dir = Path.cwd() / ".nano_claude" / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = plans_dir / f"{session_id}.md"
+
+    task_desc = params.get("task_description", "")
+    if not plan_path.exists() or plan_path.stat().st_size == 0:
+        header = f"# Plan: {task_desc}\n\n" if task_desc else "# Plan\n\n"
+        plan_path.write_text(header, encoding="utf-8")
+
+    config["_prev_permission_mode"] = config.get("permission_mode", "auto")
+    config["permission_mode"] = "plan"
+    config["_plan_file"] = str(plan_path)
+
+    return (
+        f"Plan mode activated. You are now in read-only mode.\n"
+        f"Plan file: {plan_path}\n\n"
+        f"Instructions:\n"
+        f"1. Analyze the codebase using Read, Glob, Grep, WebSearch\n"
+        f"2. Write your detailed implementation plan to the plan file using Write or Edit\n"
+        f"3. When the plan is ready, call ExitPlanMode to request user approval\n"
+        f"4. Do NOT attempt to write to any other files — they will be blocked"
+    )
+
+
+def _exit_plan_mode(params: dict, config: dict) -> str:
+    """Exit plan mode and present plan for user approval."""
+    if config.get("permission_mode") != "plan":
+        return "Not in plan mode. Use EnterPlanMode first."
+
+    plan_file = config.get("_plan_file", "")
+    plan_content = ""
+    if plan_file:
+        p = Path(plan_file)
+        if p.exists():
+            plan_content = p.read_text(encoding="utf-8").strip()
+
+    if not plan_content or plan_content == "# Plan":
+        return "Plan file is empty. Write your plan to the plan file before calling ExitPlanMode."
+
+    # Restore permissions
+    prev = config.pop("_prev_permission_mode", "auto")
+    config["permission_mode"] = prev
+
+    return (
+        f"Plan mode exited. Permission mode restored to: {prev}\n"
+        f"Plan file: {plan_file}\n\n"
+        f"The plan is ready for the user to review. "
+        f"Wait for the user to approve before starting implementation.\n\n"
+        f"--- Plan Content ---\n{plan_content}"
+    )
+
+
+_PLAN_MODE_SCHEMAS = [
+    {
+        "name": "EnterPlanMode",
+        "description": (
+            "Enter plan mode to analyze the codebase and create an implementation plan "
+            "before writing code. Use this for complex, multi-file tasks. "
+            "In plan mode, only the plan file is writable; all other writes are blocked."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_description": {
+                    "type": "string",
+                    "description": "Brief description of the task to plan for",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "ExitPlanMode",
+        "description": (
+            "Exit plan mode and present the plan for user approval. "
+            "Call this after writing your implementation plan to the plan file. "
+            "The user must approve the plan before you begin implementation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+]
+
+register_tool(ToolDef(
+    name="EnterPlanMode",
+    schema=_PLAN_MODE_SCHEMAS[0],
+    func=_enter_plan_mode,
+    read_only=False,
+    concurrent_safe=False,
+))
+
+register_tool(ToolDef(
+    name="ExitPlanMode",
+    schema=_PLAN_MODE_SCHEMAS[1],
+    func=_exit_plan_mode,
+    read_only=False,
+    concurrent_safe=False,
+))

@@ -1,5 +1,5 @@
 """
-Multi-provider support for nano claude.
+Multi-provider support for CheetahClaws.
 
 Supported providers:
   anthropic  — Claude (claude-opus-4-6, claude-sonnet-4-6, ...)
@@ -9,6 +9,7 @@ Supported providers:
   qwen       — Alibaba DashScope (qwen-max, qwen-plus, ...)
   zhipu      — Zhipu GLM (glm-4, glm-4-plus, ...)
   deepseek   — DeepSeek (deepseek-chat, deepseek-reasoner, ...)
+  minimax    — MiniMax (MiniMax-Text-01, abab6.5s-chat, ...)
   ollama     — Local Ollama (llama3.3, qwen2.5-coder, ...)
   lmstudio   — Local LM Studio (any loaded model)
   custom     — Any OpenAI-compatible endpoint
@@ -99,6 +100,17 @@ PROVIDERS: dict[str, dict] = {
             "deepseek-chat", "deepseek-coder", "deepseek-reasoner",
         ],
     },
+    "minimax": {
+        "type":       "openai",
+        "api_key_env": "MINIMAX_API_KEY",
+        "base_url":   "https://api.minimaxi.chat/v1",
+        "context_limit": 1000000,
+        "models": [
+            "MiniMax-Text-01", "MiniMax-VL-01",
+            "abab6.5s-chat", "abab6.5-chat",
+            "abab5.5s-chat", "abab5.5-chat",
+        ],
+    },
     "ollama": {
         "type":       "ollama",
         "api_key_env": None,
@@ -146,6 +158,9 @@ COSTS = {
     "deepseek-chat":            (0.27,  1.1),
     "deepseek-reasoner":        (0.55,  2.19),
     "glm-4-plus":               (0.7,   0.7),
+    "MiniMax-Text-01":          (0.7,   2.1),
+    "abab6.5s-chat":            (0.1,   0.1),
+    "abab6.5-chat":             (0.5,   0.5),
 }
 
 # Auto-detection: prefix → provider name
@@ -161,6 +176,9 @@ _PREFIXES = [
     ("qwq-",          "qwen"),
     ("glm-",          "zhipu"),
     ("deepseek-",     "deepseek"),
+    ("minimax-",      "minimax"),
+    ("MiniMax-",      "minimax"),
+    ("abab",          "minimax"),
     ("llama",         "ollama"),
     ("mistral",       "ollama"),
     ("phi",           "ollama"),
@@ -276,22 +294,38 @@ def messages_to_anthropic(messages: list) -> list:
     return result
 
 
-def messages_to_openai(messages: list, pass_images: bool = False) -> list:
+def messages_to_openai(messages: list, ollama_native_images: bool = False) -> list:
     """Convert neutral messages → OpenAI API format.
 
     Args:
-        pass_images: if True, forward the 'images' list in user messages
-                     (Ollama /api/chat native format). Must be False for
-                     OpenAI/Gemini/Qwen/etc. which use a different image schema.
+        ollama_native_images: if True, forward the 'images' list in user messages
+                              using Ollama's /api/chat native format (a bare base64
+                              list on the message object).  Set this only when
+                              targeting the Ollama backend.
+                              If False (default), images are converted to the
+                              OpenAI/Gemini multipart ``image_url`` format so they
+                              reach vision-capable cloud models correctly.
     """
     result = []
     for m in messages:
         role = m["role"]
 
         if role == "user":
-            msg_out = {"role": "user", "content": m["content"]}
-            if pass_images and m.get("images"):
-                msg_out["images"] = m["images"]
+            content = m["content"]
+            if ollama_native_images and m.get("images"):
+                # Ollama /api/chat native: bare base64 list on the message
+                msg_out = {"role": "user", "content": content, "images": m["images"]}
+            elif not ollama_native_images and m.get("images"):
+                # OpenAI / Gemini multipart vision format
+                parts = [{"type": "text", "text": content}]
+                for img_b64 in m["images"]:
+                    parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+                    })
+                msg_out = {"role": "user", "content": parts}
+            else:
+                msg_out = {"role": "user", "content": content}
             result.append(msg_out)
 
         elif role == "assistant":
@@ -502,7 +536,7 @@ def stream_ollama(
     config: dict,
 ) -> Generator:
     # pass_images=True: Ollama /api/chat accepts base64 images natively in the message
-    oai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages, pass_images=True)
+    oai_messages = [{"role": "system", "content": system}] + messages_to_openai(messages, ollama_native_images=True)
     
     # Ollama requires tool arguments as dict objects, not strings. OpenAI uses strings.
     for m in oai_messages:
@@ -529,16 +563,34 @@ def stream_ollama(
     if tool_schemas and not config.get("no_tools"):
         payload["tools"] = tools_to_openai(tool_schemas)
 
-    req = urllib.request.Request(
-        f"{base_url.rstrip('/')}/api/chat",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
-    
+    def _make_request(p):
+        return urllib.request.Request(
+            f"{base_url.rstrip('/')}/api/chat",
+            data=json.dumps(p).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+
+    req = _make_request(payload)
+
     text = ""
     tool_buf: dict = {}
-    
-    with urllib.request.urlopen(req) as resp:
+
+    try:
+        resp_cm = urllib.request.urlopen(req)
+    except urllib.error.HTTPError as e:
+        if e.code == 500 and "tools" in payload:
+            # Model doesn't support tool calling — retry without tools
+            print(
+                f"\n\033[33m[warn] {model} returned HTTP 500 (likely no tool-calling support)."
+                " Retrying without tools.\033[0m"
+            )
+            payload.pop("tools", None)
+            req = _make_request(payload)
+            resp_cm = urllib.request.urlopen(req)
+        else:
+            raise
+
+    with resp_cm as resp:
         for line in resp:
             if not line.strip(): continue
             try:
@@ -573,7 +625,7 @@ def stream_ollama(
         tool_calls.append({"id": v["id"], "name": v["name"], "input": v["input"]})
 
     # Ollama doesn't return exact token counts via livestream easily until "done",
-    # but we can do a rough estimate or 0, nano_claude handles zero gracefully
+    # but we can do a rough estimate or 0, cheetahclaws handles zero gracefully
     yield AssistantTurn(text, tool_calls, 0, 0)
 
 
