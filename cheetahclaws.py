@@ -2131,6 +2131,38 @@ def _tg_poll_loop(token: str, chat_id: int, config: dict):
                         _tg_send(token, chat_id, f"⚠ Image error: {e}")
                         continue
 
+                # ── Handle voice messages from Telegram ──
+                voice_msg = msg.get("voice") or msg.get("audio")
+                if voice_msg and not text:
+                    file_id = voice_msg["file_id"]
+                    duration = voice_msg.get("duration", 0)
+                    try:
+                        file_info = _tg_api(token, "getFile", {"file_id": file_id})
+                        if file_info and file_info.get("ok"):
+                            file_path = file_info["result"]["file_path"]
+                            import urllib.request
+                            url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+                            with urllib.request.urlopen(url) as resp:
+                                audio_bytes = resp.read()
+                            size_kb = len(audio_bytes) / 1024
+                            _tg_send(token, chat_id, f"🎙 Voice received ({duration}s, {size_kb:.0f} KB) — transcribing...")
+                            print(clr(f"\n  📩 Telegram: 🎙 voice ({duration}s, {size_kb:.0f} KB)", "cyan"))
+                            from voice import transcribe_audio_file
+                            suffix = ".ogg" if msg.get("voice") else ".mp3"
+                            transcribed = transcribe_audio_file(audio_bytes, suffix=suffix)
+                            if transcribed:
+                                _tg_send(token, chat_id, f"📝 Transcribed: \"{transcribed}\"")
+                                text = transcribed
+                            else:
+                                _tg_send(token, chat_id, "⚠ No speech detected in voice message.")
+                                continue
+                        else:
+                            _tg_send(token, chat_id, "⚠ Could not download voice message.")
+                            continue
+                    except Exception as e:
+                        _tg_send(token, chat_id, f"⚠ Voice error: {e}")
+                        continue
+
                 if not text:
                     continue
 
