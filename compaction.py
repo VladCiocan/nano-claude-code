@@ -6,8 +6,26 @@ import providers
 
 # ── Token estimation ──────────────────────────────────────────────────────
 
+def _count_str_chars(obj) -> int:
+    """Recursively count total characters across all string values in a nested structure."""
+    if isinstance(obj, str):
+        return len(obj)
+    if isinstance(obj, dict):
+        return sum(_count_str_chars(v) for v in obj.values())
+    if isinstance(obj, list):
+        return sum(_count_str_chars(item) for item in obj)
+    return 0
+
+
 def estimate_tokens(messages: list) -> int:
-    """Estimate token count by summing content lengths / 3.5.
+    """Estimate token count. Uses chars/2.8 (conservative for code-heavy content).
+
+    The old chars/3.5 divisor underestimated real token counts for code-heavy
+    conversations because: (1) code tokens are ~2.5-3 chars each, not 3.5,
+    (2) tool schemas, JSON keys, and special chars take more tokens than plain
+    text, (3) per-message framing overhead (~4 tokens/msg) is not counted.
+    This caused compaction to skip when it should have triggered, leading to
+    context overflow crashes.
 
     Args:
         messages: list of message dicts with "content" field (str or list of dicts)
@@ -15,24 +33,26 @@ def estimate_tokens(messages: list) -> int:
         approximate token count, int
     """
     total_chars = 0
+    msg_count = 0
     for m in messages:
+        msg_count += 1
         content = m.get("content", "")
         if isinstance(content, str):
             total_chars += len(content)
         elif isinstance(content, list):
             for block in content:
                 if isinstance(block, dict):
-                    # Sum all string values in the block
                     for v in block.values():
                         if isinstance(v, str):
                             total_chars += len(v)
-        # Also count tool_calls if present
         for tc in m.get("tool_calls", []):
-            if isinstance(tc, dict):
-                for v in tc.values():
-                    if isinstance(v, str):
-                        total_chars += len(v)
-    return int(total_chars / 3.5)
+            # Recursively count all string values, including nested input dicts
+            # (e.g. {"id": "c1", "name": "Bash", "input": {"command": "..."}})
+            total_chars += _count_str_chars(tc)
+    # chars/2.8 for content + 4 tokens/msg framing overhead + 10% buffer
+    content_tokens = int(total_chars / 2.8)
+    framing_tokens = msg_count * 4
+    return int((content_tokens + framing_tokens) * 1.1)
 
 
 def get_context_limit(model: str) -> int:
@@ -97,6 +117,9 @@ def find_split_point(messages: list, keep_ratio: float = 0.3) -> int:
     Returns:
         split index (messages[:idx] = old, messages[idx:] = recent)
     """
+    if not messages:
+        return 0
+    keep_ratio = max(0.0, min(1.0, keep_ratio))
     total = estimate_tokens(messages)
     target = int(total * keep_ratio)
     running = 0
@@ -146,17 +169,13 @@ def compact_messages(messages: list, config: dict, focus: str = "") -> list:
         summary_prompt += f"\n\nFocus especially on: {focus}"
     summary_prompt += "\n\n" + old_text
 
-    # Call LLM for summary
-    summary_text = ""
-    for event in providers.stream(
-        model=config["model"],
+    # Call auxiliary (fast/cheap) model for summary instead of the primary model
+    from auxiliary import stream_auxiliary
+    summary_text = stream_auxiliary(
         system="You are a concise summarizer.",
         messages=[{"role": "user", "content": summary_prompt}],
-        tool_schemas=[],
         config=config,
-    ):
-        if isinstance(event, providers.TextChunk):
-            summary_text += event.text
+    )
 
     summary_msg = {
         "role": "user",
@@ -206,7 +225,8 @@ def maybe_compact(state, config: dict) -> bool:
 def _restore_plan_context(config: dict) -> list:
     """If in plan mode, return messages that restore plan file context."""
     from pathlib import Path
-    plan_file = config.get("_plan_file", "")
+    import runtime
+    plan_file = runtime.get_ctx(config).plan_file or ""
     if not plan_file or config.get("permission_mode") != "plan":
         return []
     p = Path(plan_file)

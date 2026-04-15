@@ -8,18 +8,38 @@ English | [中文](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/READM
   </a>
 
   
-<h2 align="center" style="font-size: 30px;"><strong><em>CheetahClaws (Nano Claude Code)</em></strong>: A Fast, Easy-to-Use, Python-Native Personal AI Assistant for Any Model, Inspired by OpenClaw and Claude Code, Built to Work for You Autonomously 24/7</h2>
+<h2 align="center" style="font-size: 30px;"><strong><em>CheetahClaws (Nano Claude Code) </em></strong>: A Fast, Easy-to-Use, Python-Native Personal AI Assistant for Any Model, Inspired by OpenClaw and Claude Code, Built to Work for You Autonomously 24/7</h2>
 <p align="center">
-    <a href="https://github.com/chauncygu/collection-claude-code-source-code">The newest source of Claude Code</a>
+    <a href="https://cheetahclaws.github.io/">Website</a>
+    ·
+    <a href="https://deepwiki.com/SafeRL-Lab/cheetahclaws">Brief Intro</a>
     ·
     <a href="https://github.com/SafeRL-Lab/clawspring/issues">Issue</a>
-  ·
-    <a href="https://deepwiki.com/SafeRL-Lab/clawspring">Brief Intro</a>
+    ·
+    <a href="https://github.com/chauncygu/collection-claude-code-source-code">The newest source of Claude Code</a>
+    
   
   </p>
 </div>
 
 
+### Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SafeRL-Lab/cheetahclaws/main/scripts/install.sh | bash
+```
+
+After installation:
+
+```bash
+source ~/.zshrc     # macOS
+# or: source ~/.bashrc   # Linux
+cheetahclaws        # start chatting!
+```
+
+Other install methods: [pip install](#alternative-install-with-pip) | [uv install](#alternative-install-with-uv) | [run from source](#alternative-run-directly-from-source-no-install) | [full details](#installation)
+
+### Demos
  <div align=center>
  <img src="https://github.com/SafeRL-Lab/clawspring/blob/main/docs/demo.gif" width="850"/> 
  </div>
@@ -68,41 +88,80 @@ English | [中文](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/READM
 
 ---
 
+  <div align=center>
+ <img src="https://github.com/SafeRL-Lab/cheetahclaws/blob/main/docs/wechat_demo.gif" width="850"/> 
+ </div>
+<div align=center>
+<center style="color:#000000;text-decoration:underline">WeChat Bridge: Control cheetahclaws from WeChat (微信)</center>
+ </div>
+
+---
+
+  <div align=center>
+ <img src="https://github.com/SafeRL-Lab/cheetahclaws/blob/main/docs/slack_demo.gif" width="850"/> 
+ </div>
+<div align=center>
+<center style="color:#000000;text-decoration:underline">Slack Bridge: Control cheetahclaws from Slack</center>
+ </div>
+
+---
+
 
  
 ## 🔥🔥🔥 News (Pacific Time)
 
+ 
+- Apr 15, 2026 (**v3.05.72**): **Error classifier, parallel tools, prompt injection detection, SQLite sessions, tool cache, auxiliary model, safe stdio**
+  - **Error classifier** (`error_classifier.py`) — centralized API error taxonomy (auth, billing, rate_limit, context_overflow, model_not_found, overloaded, connection, timeout) with per-category recovery hints, retryability, and backoff multipliers. Replaces fragile string matching in `agent.py` and `cheetahclaws.py`.
+  - **Parallel tool execution** (`agent.py`) — when the LLM returns multiple tool calls, `concurrent_safe=True` tools (Read, Glob, Grep, WebSearch, etc.) now run in parallel via ThreadPoolExecutor (up to 8 workers). Write tools remain sequential. Permission checks are still serial.
+  - **Prompt injection detection** (`context.py`) — CLAUDE.md files are scanned for 8 threat patterns (e.g., "ignore previous instructions", "system prompt override", credential exfiltration via curl/echo) before injection into the system prompt. Detected files are excluded with a security warning.
+  - **SQLite session store + full-text search** (`session_store.py`) — sessions are now saved to SQLite (WAL mode) alongside JSON files. FTS5 index enables `/search <query>` to find past conversations by content. Auto-imports legacy `history.json` on first search.
+  - **Tool result cache** (`tool_registry.py`) — read-only tools cache results by `sha256(name + params)`, LRU eviction at 64 entries. Write tools (Write, Edit, Bash, NotebookEdit) invalidate the cache automatically. Eliminates redundant file reads in agent loops.
+  - **Auxiliary model routing** (`auxiliary.py`) — side tasks (context compression, summarization) now route to a fast/cheap model (Gemini Flash, GPT-4o-mini, etc.) instead of the primary model. Auto-detects from available API keys. Configurable via `auxiliary_model` in config.
+  - **Auto-discovery tool loading** (`tools/__init__.py`) — extension modules loaded via `_EXTENSION_MODULES` list + `__import__()` loop instead of manual import statements. Adding a new extension is one line.
+  - **Safe stdio wrapper** (`cheetahclaws.py`) — `sys.stdout`/`sys.stderr` wrapped with `_SafeWriter` that silently handles `BrokenPipeError` and closed file descriptors. Prevents crashes when terminal disconnects during bridge/daemon operation.
+  - **One-line installer** (`scripts/install.sh`) — `curl -fsSL .../install.sh | bash` handles platform detection (Linux/macOS/WSL2/Termux), Python/git/pip checks, clone, install, and PATH setup. First run triggers the setup wizard automatically.
+  - **Contributing section** in README with quick-start commands for contributors, linking to CONTRIBUTING.md and Plugin Authoring Guide.
+  - **Browser tool** (`tools/browser.py`) — `WebBrowse` renders JavaScript pages with headless Chromium (via playwright). Supports extract, screenshot, and click actions with CSS selectors. Solves dynamic/SPA pages that `WebFetch` can't handle. Optional: `pip install cheetahclaws[browser]`.
+  - **Email tools** (`tools/email.py`) — `ReadEmail` (IMAP) reads inbox with search by sender/subject; `SendEmail` (SMTP) sends emails with threading support. Zero external deps (Python stdlib). Configure with `/config email_address=...`.
+  - **File tools** (`tools/files.py`) — `ReadPDF` extracts text from PDFs (pymupdf); `ReadImage` does OCR on images (pytesseract, 99 languages); `ReadSpreadsheet` reads Excel/CSV/TSV with formatted table output. Optional: `pip install cheetahclaws[files]`.
+  - **`[all]` extra** — `pip install cheetahclaws[all]` installs every optional dependency (voice, vision, autosuggest, browser, files, OCR).
+  - **Version bumped to 3.05.72.**
 
-- Apr 08, 2026 (**v3.05.55**): **Modular ecosystem, TTS Content Factory, CJK voice auto-detect, readline ANSI fix**
-  - **Modular ecosystem (`modular/`)** — new plug-and-play module folder. Each submodule (`modular/video/`, `modular/voice/`) is self-contained with its own `cmd.py` exporting a `COMMAND_DEFS` dict. The registry auto-discovers all modules at startup; missing modules degrade gracefully without affecting the rest of the system. Existing `video/` and `voice/` imports continue to work via backward-compat shims.
-  - **TTS Content Factory (`/tts`)** — new command for AI-powered text-to-speech generation. Interactive wizard: choose a voice style (narrator, newsreader, storyteller, ASMR, motivational, documentary, children, podcast, meditation, custom), duration, TTS engine (Gemini → ElevenLabs → Edge, best available), and individual voice. In AI mode the active model writes the script; in custom-text mode you paste your own. Output: `.mp3` audio + `_script.txt` companion file. Also accessible as option 12 in `/ssj`.
-  - **CJK auto-voice detection** — Edge TTS with an English voice silently skips Chinese/Japanese/Korean characters (only reads the Latin parts). The TTS backend now detects CJK-heavy text and auto-switches to `zh-CN-XiaoxiaoNeural` when a non-CJK voice is selected, ensuring the full text is synthesized.
-  - **Edge TTS long-text chunking** — Edge TTS silently truncates text beyond ~3 000 chars. The pipeline now splits text into ≤ 2 000-char chunks at sentence boundaries, synthesizes each chunk independently, and concatenates with ffmpeg — audio now always covers the complete script.
-  - **Readline ANSI fix** (#29 / #31) — ANSI color codes in `input()` prompts now wrapped with `\001…\002` (RL_PROMPT_START/END_IGNORE) so readline accounts for them as zero-width. Fixes cursor drift and duplicate-line content when scrolling REPL history.
-  - **SSJ Developer Mode extended** — SSJ menu now includes option 11 (🎬 Video factory, conditional) and option 12 (🎙 TTS factory, conditional), matching the modular availability flags.
+- Apr 15, 2026 (**v3.05.71**): **Plugin docs, example template, config namespace fix, typing-time autosuggest**
+  - **Plugin authoring guide** (`docs/guides/plugin-authoring.md`) — full guide for building third-party plugins: tools (`TOOL_DEFS`), commands (`COMMAND_DEFS`), skills, MCP servers, manifest format, testing, publishing checklist, and common mistakes.
+  - **Example plugin template** (`examples/example-plugin/`) — copy-and-edit starter with working tools (`ExampleSearch`, `ExampleStatus`), command (`/example` with subcommands), skill, and `plugin.json` manifest.
+  - **Fix `config` namespace collision** — renamed `config.py` to `cc_config.py` to avoid conflict with system `config` namespace packages. `pip install -e .` followed by `cheetahclaws` from outside the project directory no longer crashes with `ImportError`.
+  - **Typing-time autosuggest** (PR #38 by @honghua) — optional `prompt_toolkit` integration for inline ghost suggestions and keyboard-selectable completion menu while typing slash commands. Install with `pip install cheetahclaws[autosuggest]`. Falls back to readline when not installed. Env var `CHEETAH_PT_INPUT=0` to opt out.
+  - **Python 3.10-3.13 compat fix** (PR #38) — `Path.read_text(newline=)` in `tools/fs.py` replaced with portable `open()` helper (the `newline=` kwarg is 3.14+ only).
+  - **Version bumped to 3.05.71.**
 
-- Apr 07, 2026 (**v3.05.54**): **Video factory major upgrade: custom script mode, PIL subtitle engine, web image search, wizard UX overhaul: Idea → Story → Final AI Video**. Inspired by Kevin, with sincere thanks for his great help and inspiration in making this project better.
-  - **Custom script mode** — new content mode in `/video` wizard. Choose "Custom script" to paste your own narration text: TTS reads it aloud, and the same text is automatically shown as subtitles (timed proportionally). No AI story generation step, no Whisper required. Ideal for product promos, personal narrations, and multilingual content.
-  - **PIL subtitle rendering engine** — subtitles are now rendered with Pillow (PIL) + NotoSansSC font instead of the libass filter. This fixes non-Latin characters (Chinese, Japanese, Korean, Cyrillic, Arabic) showing as black boxes. The pipeline uses a two-pass approach: fast `-c:v copy` assembly, then PIL-rendered PNG overlays burned in via ffmpeg `filter_complex`. Falls back to no subtitles if PIL fails — never crashes the pipeline.
-  - **Subtitle source selection** — new wizard step to choose subtitle mode: Auto (Whisper transcription), Story text (burn script/story as subtitles — works for all languages, no Whisper needed), Custom text (paste your own), or None.
-  - **Text-to-SRT from plain text** — `text_to_srt()` splits any plain text into natural subtitle chunks (word-wrap for Latin, punctuation+character-wrap for CJK) and distributes timing proportionally across the audio duration. Works for all languages, offline.
-  - **Free web image search** — `/video` now searches for relevant stock photos from Pexels → Wikimedia Commons → Lorem Picsum when no source images or Gemini Web session are available. AI-generated search queries (model-driven) improve relevance. Always produces images — never fails.
-  - **AI-powered source image selection** — when a source folder contains more images than needed, the model reads filenames and story content to select the most relevant ones. Keyword-scoring fallback when the model is unavailable.
-  - **Wizard UX overhaul** — full step-loop wizard with `b`=back, `q`=quit at every step. All options have Auto as default (Enter = Auto). Custom language input (type any language name + Whisper code). Style list shows before prompting. Custom output path step. Detects content language from topic text automatically.
-  - **Audio/video sync fix** — `_audio_duration()` now parses `ffmpeg -i stderr` Duration output for accurate measurement. Previously used a file-size estimate at 128kbps, causing 2.7× overestimate for Edge TTS (which outputs at 48kbps). Videos now always match audio length.
-  - **Source materials** — `--source <dir>` pre-loads images, audio, video, and text files. Images are used directly; audio/video narration replaces TTS; text files are summarised and injected as story context.
+- Apr 14, 2026 (**v3.05.70**): **Setup wizard, Ollama UX, context indicator, and session robustness**
+  - **Interactive setup wizard** (`commands/core.py`, `cheetahclaws.py`) — `cheetahclaws --setup` or `/setup` launches a guided setup: pick from 6 providers (Ollama, Anthropic, OpenAI, Gemini, DeepSeek, custom), auto-detect env vars, set API key, verify connection. Auto-triggers on first run (no `config.json`). API key missing warning now suggests `--setup`.
+  - **Ollama UX improvements** — `/model` now shows live local Ollama models (via `/api/tags`) instead of a hardcoded list. `/model ollama` triggers the interactive model picker. Connection failures and 404 errors now give actionable messages ("Is Ollama running?", "Pull it with: ollama pull ..."). Tool-calling fallback message clarified.
+  - **Context usage in prompt** — the REPL prompt now shows context window usage as a percentage: dim when <40%, yellow at 40-70%, red at >=70%. Users can see when compaction is approaching without running `/context`.
+  - **Session save/resume robustness** — atomic writes (write-to-temp + rename) prevent corruption on crash. `/load` and `/resume` now catch corrupted JSON with friendly error messages and suggest daily backups. History file corruption no longer blocks auto-save.
+  - **Version from pyproject.toml** — `VERSION` is now read dynamically from `pyproject.toml` (single source of truth), no more hardcoded version drift. Falls back to `importlib.metadata` when installed as a package.
+  - **`/doctor` enhanced** — added internet connectivity check and `pyte` dependency check; optional vs required deps now distinguished (`[FAIL]` for missing required deps).
+  - **Fix `mcp` namespace collision** — renamed internal `mcp/` package to `cc_mcp/` to avoid conflict with the official `mcp` pip package (Anthropic MCP SDK). Previously, `pip install .` followed by `cheetahclaws` crashed with `ImportError: cannot import name 'MCPClient'`.
+  - **Version bumped to 3.05.70.**
 
-- Apr 07, 2026 (**v3.05.53**): **Telegram photo/voice support, process-tree kill on Bash timeout, Windows shell hints, worker fix**
-  - **Telegram photo vision** — send a photo to the Telegram bridge and CheetahClaws will describe it using the active vision model (GPT-4o, Gemini 2.0 Flash, Claude, etc.). The bot downloads the highest-resolution version, encodes it as Base64, and routes it through the same `_pending_image` path as `/img`. Caption text (or a default "describe this image" prompt) is forwarded alongside the image.
-  - **Telegram voice/audio STT** — send a voice message or audio file to the Telegram bridge and CheetahClaws transcribes it automatically. OGG voice notes are converted to PCM via `ffmpeg` and passed to the local Whisper backend; falls back to the OpenAI Whisper API when `ffmpeg` is unavailable. The transcription is echoed back to the chat before being submitted as a query.
-  - **Process-tree kill on Bash timeout** — when a `Bash` command times out, CheetahClaws now kills the entire child process tree instead of only the shell. On Unix, `os.killpg` sends `SIGKILL` to the process group; on Windows, `taskkill /F /T` terminates all child processes. GUI apps (e.g. PyQt games launched by the agent) no longer leave zombie processes after a timeout. The internal implementation uses `start_new_session=True` instead of `preexec_fn=os.setsid` for thread safety.
-  - **Worker runs all pending tasks by default** — `/worker` previously processed only 1 task per session (a bug). It now runs all pending tasks by default. The `--workers N` flag still limits the batch size when needed.
-  - **Windows shell hints in system prompt** — non-Claude models now receive a Windows-specific shell cheat-sheet in the system prompt (`type` vs `cat`, `dir /s /b` vs `find`, `del` vs `rm`, etc.) so the agent generates correct commands on Windows without manual guidance.
-  - **Bash timeout hints** — the `Bash` tool description now advises the model to use `timeout=120–300` for slow commands (`npm install`, `npx`, `pip install`, builds), reducing spurious 30-second timeouts on package operations.
-  - **Bug fix: background event prompt shows actual cwd** — the yellow re-prompt printed after a background event completed was hardcoded to `[claude-code-local]`; it now shows the real working-directory name (`[{cwd.name}]`), consistent with the main REPL prompt.
+- Apr 14, 2026 (**v3.05.69**): **Actionable error messages, dependency sync, and contributor guide**
+  - **Actionable API error messages** (`cheetahclaws.py`) — the REPL error handler now detects 6 common failure modes (invalid API key, network timeout, Ollama not running, rate limit, model not found, insufficient credits) and prints a specific hint alongside the error instead of a generic message. The proactive watcher background thread no longer dumps raw Python tracebacks to stdout — errors are routed through `logging_utils` instead.
+  - **Dependency sync** (`pyproject.toml`, `requirements.txt`) — `pyte>=0.8.0` added to `pyproject.toml` core dependencies (was only in `requirements.txt`, causing import failures after `pip install .`). `requirements.txt` rewritten to mirror `pyproject.toml` as single source of truth, with optional deps (`sounddevice`, `Pillow`) clearly marked.
+  - **`CONTRIBUTING.md`** — new contributor guide covering project structure, architecture (config vs RuntimeContext, tool/plugin/hooks systems), development conventions, and a PR checklist. Addresses recurring PR issues where contributors misunderstood the plugin loader (`TOOL_DEFS` vs `register_tool()`), hooks system (no event-based hooks), and runtime state management.
+  - **Version bumped to 3.05.69.**
 
 
 
+
+
+
+
+
+
+
+ 
 For more news, see [here](https://github.com/SafeRL-Lab/cheetahclaws/blob/main/docs/news.md)
 
 
@@ -120,37 +179,13 @@ CheetahClaws: **A Lightweight** and **Easy-to-Use** Python Reimplementation of C
   * [Features](#features)
   * [Supported Models](#supported-models)
   * [Installation](#installation)
-  * [Usage: Closed-Source API Models](#usage--closed-source-api-models)
-  * [Usage: Open-Source Models (Local)](#usage--open-source-models--local-)
+  * [Usage: Closed-Source API Models](#usage-closed-source-api-models)
+  * [Usage: Open-Source Models (Local)](#usage-open-source-models-local)
   * [Model Name Format](#model-name-format)
-  * [CLI Reference](#cli-reference)
-  * [Slash Commands (REPL)](#slash-commands--repl-)
-  * [Configuring API Keys](#configuring-api-keys)
-  * [Permission System](#permission-system)
-  * [Built-in Tools](#built-in-tools)
-  * [Memory](#memory)
-  * [Skills](#skills)
-  * [Sub-Agents](#sub-agents)
-  * [MCP (Model Context Protocol)](#mcp-model-context-protocol)
-  * [Plugin System](#plugin-system)
-  * [AskUserQuestion Tool](#askuserquestion-tool)
-  * [Task Management](#task-management)
-  * [Voice Input](#voice-input)
-  * [Brainstorm](#brainstorm)
-  * [SSJ Developer Mode](#ssj-developer-mode)
-  * [Telegram Bridge](#telegram-bridge)
-  * [Video Content Factory](#video-content-factory)
-  * [TTS Content Factory](#tts-content-factory)
-  * [Proactive Background Monitoring](#proactive-background-monitoring)
-  * [Checkpoint System](#checkpoint-system)
-  * [Plan Mode](#plan-mode)
-  * [Context Compression](#context-compression)
-  * [Diff View](#diff-view)
-  * [CLAUDE.md Support](#claudemd-support)
-  * [Session Management](#session-management)
-  * [Cloud Sync (GitHub Gist)](#cloud-sync-github-gist)
-  * [Project Structure](#project-structure)
+  * [Documentation](#documentation) (guides for all features)
+  * [Contributing](#contributing)
   * [FAQ](#faq)
+  * [Citation](#citation)
 
 
 
@@ -166,8 +201,8 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | Dimension | Claude Code (TypeScript) | CheetahClaws (Python) |
 |-----------|--------------------------|---------------------------|
 | Language | TypeScript + React/Ink | Python 3.8+ |
-| Source files | ~1,332 TS/TSX files | 51 Python files |
-| Lines of code | ~283K | ~12K |
+| Source files | ~1,332 TS/TSX files | ~85 Python files |
+| Lines of code | ~283K | ~40K |
 | Built-in tools | 44+ | 27 |
 | Slash commands | 88 | 36 |
 | Voice input | Proprietary Anthropic WebSocket (OAuth required) | Local Whisper / OpenAI API — works offline, no subscription |
@@ -200,6 +235,8 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 - **Cloud session sync** — `/cloudsave` backs up conversations to private GitHub Gists with zero extra dependencies; restore any past session on any machine with `/cloudsave load <id>`.
 - **SSJ Developer Mode** — `/ssj` opens a persistent power menu with 10 workflow shortcuts: Brainstorm → TODO → Worker pipeline, expert debate, code review, README generation, commit helper, and more. Stays open between actions; supports `/command` passthrough.
 - **Telegram Bot Bridge** — `/telegram <token> <chat_id>` turns cheetahclaws into a Telegram bot: receive user messages, run the model, and send back responses — all from your phone. Slash commands pass through, and a typing indicator keeps the chat feeling live.
+- **WeChat Bridge** — `/wechat login` authenticates with WeChat via a QR code scan (the same iLink Bot API used by the official WeixinClawBot / `openclaw-weixin` plugin), then starts a long-poll bridge. Slash command passthrough, interactive menu routing, typing indicator, session auto-recovery, and per-peer `context_token` management all work out of the box.
+- **Slack Bridge** — `/slack <xoxb-token> <channel_id>` connects cheetahclaws to a Slack channel using the Slack Web API (stdlib only — no `slack_sdk` required). Polls `conversations.history` every 2 seconds; replies update an in-place "Thinking…" placeholder. Slash command passthrough, interactive menu routing, and auto-start on launch.
 - **Worker command** — `/worker` auto-implements pending tasks from `brainstorm_outputs/todo_list.txt`, marks each one done after completion, and supports task selection by number (e.g. `1,4,6`).
 - **Force quit** — 3× Ctrl+C within 2 seconds triggers immediate `os._exit(1)`, unblocking any frozen I/O.
 - **Proactive background monitoring** — `/proactive 5m` activates a sentinel daemon that wakes the agent automatically after a period of inactivity, enabling continuous monitoring loops, scheduled checks, or trading bots without user prompts.
@@ -222,11 +259,11 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | Dimension | OpenClaw (TypeScript) | CheetahClaws (Python) |
 |-----------|----------------------|---------------------|
 | Language | TypeScript + Node.js | Python 3.8+ |
-| Source files | ~10,349 TS/JS files | 51 Python files |
+| Source files | ~10,349 TS/JS files | ~85 Python files |
 | Lines of code | ~245K | ~12K |
 | Primary focus | Personal life assistant across messaging channels | AI **coding** assistant / developer tool |
 | Architecture | Always-on Gateway daemon + companion apps | Zero-install terminal REPL |
-| Messaging channels | 20+ (WhatsApp · Telegram · Slack · Discord · Signal · iMessage · Matrix · WeChat · …) | Terminal + optional Telegram bridge |
+| Messaging channels | 20+ (WhatsApp · Telegram · Slack · Discord · Signal · iMessage · Matrix · WeChat · …) | Terminal + Telegram bridge + WeChat bridge (iLink) + Slack bridge (Web API) |
 | Model providers | Multiple (cloud-first) | 7+ including full local support (Ollama · vLLM · LM Studio · …) |
 | Local / offline models | Limited | Full — Ollama, vLLM, any OpenAI-compatible endpoint |
 | Voice | Wake word · PTT · Talk Mode (macOS/iOS/Android) | Offline Whisper STT (local, no API key) |
@@ -323,12 +360,19 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | 36 slash commands | `/model` · `/config` · `/save` · `/cost` · `/memory` · `/skills` · `/agents` · `/voice` · `/proactive` · `/checkpoint` · `/plan` · `/compact` · `/status` · `/doctor` · … |
 | Voice input | Record → transcribe → auto-submit. Backends: `sounddevice` / `arecord` / SoX + `faster-whisper` / `openai-whisper` / OpenAI API. Works fully offline. |
 | Brainstorm | `/brainstorm [topic]` generates N expert personas suited to the topic (2–100, default 5, chosen interactively), runs an iterative debate, saves results to `brainstorm_outputs/`, and synthesizes a Master Plan + auto-generates `brainstorm_outputs/todo_list.txt`. |
-| SSJ Developer Mode | `/ssj` opens a persistent interactive power menu with up to 12 shortcuts: Brainstorm, TODO viewer, Worker, Expert Debate, Propose, Review, Readme, Commit, Scan, Promote, Video factory (if available), TTS factory (if available). Stays open between actions; `/command` passthrough supported. |
+| SSJ Developer Mode | `/ssj` opens a persistent interactive power menu with **14 shortcuts**: Brainstorm, TODO viewer, Worker, Expert Debate, Propose, Review, Readme, Commit, Scan, Promote, Video factory, TTS factory, Monitor, Agent. Stays open between actions; `/command` passthrough supported. |
+| Monitor | `/monitor` (no args → wizard) subscribes to AI-monitored topics on a schedule and pushes reports to Telegram/Slack/console. Topics: `ai_research` (arxiv), `stock_<TICKER>`, `crypto_<SYMBOL>`, `world_news` (Reuters/BBC/AP), `custom:<query>`. Schedules: 15m to weekly. Background scheduler daemon with `/monitor start/stop/status`. |
+| Autonomous Agents | `/agent` (no args → wizard) launches autonomous background agent loops driven by Markdown task templates. 4 built-in templates: `research_assistant`, `auto_bug_fixer`, `paper_writer`, `auto_coder`. Iteration summaries pushed via bridge. Custom templates: drop a `.md` file into `~/.cheetahclaws/agent_templates/`. |
+| Remote Control job queue | All three bridges (Telegram/Slack/WeChat) maintain a per-bridge FIFO job queue when the AI is busy. `!jobs` / `!j` — dashboard; `!job <id>` — detail; `!retry <id>` — re-run a failed job; `!cancel [id]` — stop current job. Tool step tracking with `on_tool_start`/`on_tool_end` hooks. Persistent log at `~/.cheetahclaws/jobs.json`. |
 | Worker | `/worker [task#s]` reads `brainstorm_outputs/todo_list.txt`, implements each pending task with a dedicated model prompt, and marks it done (`- [x]`). Supports task selection (`/worker 1,4,6`), custom path (`--path`), and worker count limit (`--workers`). Detects and redirects accidental brainstorm `.md` paths. |
 | Telegram bridge | `/telegram <token> <chat_id>` starts a bot bridge: receive messages from Telegram, run the model, and reply — all from your phone. Typing indicator, slash command passthrough (including interactive menus), and auto-start on launch if configured. |
+| WeChat bridge | `/wechat login` authenticates via QR code scan (same as WeixinClawBot / openclaw-weixin plugin), then starts the iLink long-poll bridge. `context_token` echoed per peer, typing indicator, slash command passthrough, session expiry auto-recovery. Credentials saved for auto-start on next launch. |
+| Slack bridge | `/slack <xoxb-token> <channel_id>` connects to a Slack channel via the Web API (no external packages). Polls `conversations.history` every 2 s; replies update an in-place "Thinking…" placeholder. Slash command passthrough, interactive menu routing, auth validation on start, auto-start on next launch. |
 | Video factory | `/video [topic]` runs the full AI video pipeline: story generation (active model) → TTS narration (Edge/Gemini/ElevenLabs) → AI images (Gemini Web free or placeholders) → subtitle burn (Whisper) → FFmpeg assembly → final `.mp4`. 10 viral content niches, landscape or short format, zero-cost path available. |
 | TTS factory | `/tts` interactive wizard: AI writes script (or paste your own) → synthesize to MP3 in any voice style (narrator, newsreader, storyteller, ASMR, motivational, documentary, children, podcast, meditation, custom). Engine auto-selects: Gemini TTS → ElevenLabs → Edge TTS (always-free). CJK text auto-switches to a matching voice. |
 | Vision input | `/image` (or `/img`) captures the clipboard image and sends it to any vision-capable model — Ollama (`llava`, `gemma4`, `llama3.2-vision`) via native format, or cloud models (GPT-4o, Gemini 2.0 Flash, …) via OpenAI `image_url` multipart format. Requires `pip install cheetahclaws[vision]`; Linux also needs `xclip`. |
+| Tmux integration | 11 tmux tools for direct terminal control: create sessions/windows/panes, send commands, capture output. Auto-detected; zero impact if tmux is absent. Enables long-running tasks that outlive Bash tool timeouts. Cross-platform (tmux on Unix, psmux on Windows). |
+| Shell escape | Type `!command` in the REPL to execute any shell command directly without AI involvement (`!git status`, `!ls`, `!python --version`). Output prints inline. |
 | Proactive monitoring | `/proactive [duration]` starts a background sentinel daemon; agent wakes automatically after inactivity, enabling continuous monitoring loops without user prompts |
 | Force quit | 3× Ctrl+C within 2 seconds triggers `os._exit(1)` — kills the process immediately regardless of blocking I/O |
 | Rich Live streaming | When `rich` is installed, responses render as live-updating Markdown in place. Auto-disabled in SSH sessions to prevent repeated output; override with `/config rich_live=false`. |
@@ -352,7 +396,14 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | **Anthropic** | `claude-haiku-4-5-20251001` | 200k | Fast, cost-efficient | `ANTHROPIC_API_KEY` |
 | **OpenAI** | `gpt-4o` | 128k | Strong multimodal & coding | `OPENAI_API_KEY` |
 | **OpenAI** | `gpt-4o-mini` | 128k | Fast, cheap | `OPENAI_API_KEY` |
-| **OpenAI** | `o3-mini` | 200k | Strong reasoning | `OPENAI_API_KEY` |
+| **OpenAI** | `gpt-4.1` | 128k | Latest GPT-4 generation | `OPENAI_API_KEY` |
+| **OpenAI** | `gpt-4.1-mini` | 128k | Fast GPT-4.1 | `OPENAI_API_KEY` |
+| **OpenAI** | `gpt-5` | 128k | Next-gen flagship | `OPENAI_API_KEY` |
+| **OpenAI** | `gpt-5-nano` | 128k | Fastest GPT-5 variant | `OPENAI_API_KEY` |
+| **OpenAI** | `gpt-5-mini` | 128k | Balanced GPT-5 variant | `OPENAI_API_KEY` |
+| **OpenAI** | `o4-mini` | 200k | Fast reasoning | `OPENAI_API_KEY` |
+| **OpenAI** | `o3` | 200k | Strong reasoning | `OPENAI_API_KEY` |
+| **OpenAI** | `o3-mini` | 200k | Compact reasoning | `OPENAI_API_KEY` |
 | **OpenAI** | `o1` | 200k | Advanced reasoning | `OPENAI_API_KEY` |
 | **Google** | `gemini-2.5-pro-preview-03-25` | 1M | Long context, multimodal | `GEMINI_API_KEY` |
 | **Google** | `gemini-2.0-flash` | 1M | Fast, large context | `GEMINI_API_KEY` |
@@ -394,24 +445,44 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 
 > **Note:** Tool calling requires a model that supports function calling. Recommended local models: `qwen2.5-coder`, `llama3.3`, `mistral`, `phi4`.
 
+> **OpenAI newer models (gpt-5 / o3 / o4 family):** These models require `max_completion_tokens` instead of the legacy `max_tokens` parameter. CheetahClaws handles this automatically — no configuration needed.
+
 > **Reasoning models:** `deepseek-r1`, `qwen3`, and `gemma4` stream native `<think>` blocks. Enable with `/verbose` and `/thinking` to see thoughts in the terminal. Note: models fed a large system prompt (like cheetahclaws's 25 tool schemas) may suppress their thinking phase to avoid breaking the expected JSON format — this is model behavior, not a bug.
 
 ---
 
 ## Installation
 
-### Recommended: install as a global command with `uv`
-
-[uv](https://docs.astral.sh/uv/) installs `cheetahclaws` into an isolated environment and puts it on your PATH so you can run it from anywhere:
+### Quick Install (one command)
 
 ```bash
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/SafeRL-Lab/cheetahclaws/main/scripts/install.sh | bash
+```
 
-# Clone and install
-git clone https://github.com/SafeRL-Lab/clawspring
+Works on **Linux, macOS, WSL2, and Android (Termux)**. The installer handles everything: checks Python 3.10+, clones the repo, installs via pip, and adds `cheetahclaws` to your PATH.
+
+After installation:
+
+```bash
+source ~/.zshrc     # macOS (zsh)
+# or: source ~/.bashrc   # Linux (bash)
+cheetahclaws        # start chatting!
+```
+
+First run will guide you through setup (pick provider, set API key). Or run `cheetahclaws --setup` anytime.
+
+> **Windows:** Native Windows is not supported. Install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and run the command above inside WSL.
+>
+> **Android / Termux:** The installer auto-detects Termux and skips incompatible optional dependencies. Manual install: `pkg install python git && pip install cheetahclaws`.
+
+---
+
+### Alternative: install with `pip`
+
+```bash
+git clone https://github.com/SafeRL-Lab/cheetahclaws.git
 cd cheetahclaws
-uv tool install .
+pip install .
 ```
 
 After that, `cheetahclaws` is available as a global command:
@@ -420,33 +491,62 @@ After that, `cheetahclaws` is available as a global command:
 cheetahclaws                        # start REPL
 cheetahclaws --model gpt-4o         # choose a model
 cheetahclaws -p "explain this"      # non-interactive
+cheetahclaws --setup                # re-run setup wizard
 ```
 
 To update after pulling new code:
 
 ```bash
-uv tool install . --reinstall
-```
-
-To uninstall:
-
-```bash
-uv tool uninstall cheetahclaws
-```
-
-### Alternative: run directly from the repo
-
-```bash
-git clone https://github.com/SafeRL-Lab/clawspring
 cd cheetahclaws
+git pull
+pip install .
+```
 
+#### Optional extras
+
+```bash
+pip install ".[voice]"              # voice input (sounddevice)
+pip install ".[vision]"             # clipboard image capture (Pillow)
+pip install ".[autosuggest]"        # typing-time slash command autosuggest (prompt_toolkit)
+pip install ".[browser]"            # headless browser for JS-rendered pages (playwright)
+pip install ".[files]"              # PDF + Excel reading (pymupdf, openpyxl)
+pip install ".[ocr]"                # image OCR (pytesseract, Pillow)
+pip install ".[all]"                # everything above
+```
+
+> **Note:** After installing `[browser]`, run `playwright install chromium` to download the browser binary.
+---
+
+### Alternative: install with `uv`
+
+[uv](https://docs.astral.sh/uv/) installs `cheetahclaws` into an isolated environment and puts it on your PATH:
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and install
+git clone https://github.com/SafeRL-Lab/cheetahclaws.git
+cd cheetahclaws
+uv tool install .
+```
+
+To update: `uv tool install . --reinstall`
+
+To uninstall: `uv tool uninstall cheetahclaws`
+
+---
+
+### Alternative: run directly from source (no install)
+
+```bash
+git clone https://github.com/SafeRL-Lab/cheetahclaws.git
+cd cheetahclaws
 pip install -r requirements.txt
-# or manually (sounddevice is optional — only needed for /voice):
-pip install anthropic openai httpx rich
-pip install sounddevice  # optional: voice input
-
 python cheetahclaws.py
 ```
+
+This is useful for development — changes take effect immediately without reinstalling.
 
 ---
 
@@ -677,7 +777,9 @@ CUDA_VISIBLE_DEVICES=7 python -m vllm.entrypoints.openai.api_server \
 # Example: vLLM serving Qwen2.5-Coder-32B
 python -m vllm.entrypoints.openai.api_server \
     --model Qwen/Qwen2.5-Coder-32B-Instruct \
-    --port 8000
+    --port 8000 \
+    --enable-auto-tool-choice \
+    --tool-call-parser hermes
 
 # Then run cheetahclaws pointing to your server:
 cheetahclaws
@@ -744,11 +846,28 @@ cheetahclaws --model qwen:qwen-max
 
 ---
 
-## CLI Reference
+## Documentation
+
+Detailed guides have been moved to [`docs/guides/`](docs/guides/) to keep this README focused. Click any link below:
+
+| Guide | What's Inside |
+|-------|---------------|
+| [**Reference**](docs/guides/reference.md) | CLI, 36+ commands, 33 built-in tools (incl. WebBrowse, ReadEmail, SendEmail, ReadPDF, ReadImage, ReadSpreadsheet), session search, auxiliary model, error classification, prompt injection detection, tool cache, parallel tools |
+| [**Extensions**](docs/guides/extensions.md) | Memory system, Skills, Sub-Agents, MCP servers, Plugin system, Monitor subscriptions, Autonomous Agents |
+| [**Bridges**](docs/guides/bridges.md) | Telegram, WeChat, Slack setup and remote control from your phone |
+| [**Voice & Video**](docs/guides/voice-and-video.md) | Voice input (offline Whisper), Video Content Factory, TTS Content Factory |
+| [**Advanced**](docs/guides/advanced.md) | Brainstorm, SSJ Developer Mode, Tmux, Proactive monitoring, Checkpoints, Plan mode, Session management, Cloud sync |
+| [**Recipes**](docs/guides/recipes.md) | 12 step-by-step examples: code review, Telegram remote control, autonomous research, bug fix, brainstorm, session search, browse web pages, email, PDF/Excel analysis, and more |
+| [**Plugin Authoring**](docs/guides/plugin-authoring.md) | Build your own plugin: tools, commands, skills, MCP servers, publishing checklist |
+| [**Example Plugin**](examples/example-plugin/) | Copy-and-edit starter template with working tools, commands, and skills |
+| [**Contributing**](CONTRIBUTING.md) | Project structure, architecture guide, PR checklist |
+
+---
+
+## Quick Reference
 
 ```
 cheetahclaws [OPTIONS] [PROMPT]
-# or: python cheetahclaws.py [OPTIONS] [PROMPT]
 
 Options:
   -p, --print          Non-interactive: run prompt and exit
@@ -781,1938 +900,26 @@ cheetahclaws --accept-all --print "Initialize a Python project with pyproject.to
 cheetahclaws --thinking --verbose
 ```
 
----
-
-## Slash Commands (REPL)
-
-Type `/` and press **Tab** to see all commands with descriptions. Continue typing to filter, then Tab again to auto-complete. After a command name, press **Tab** again to see its subcommands (e.g. `/plugin ` → `install`, `uninstall`, `enable`, …).
-
-| Command | Description |
-|---|---|
-| `/help` | Show all commands |
-| `/clear` | Clear conversation history |
-| `/model` | Show current model + list all available models |
-| `/model <name>` | Switch model (takes effect immediately) |
-| `/config` | Show all current config values |
-| `/config key=value` | Set a config value (persisted to disk) |
-| `/save` | Save session (auto-named by timestamp) |
-| `/save <filename>` | Save session to named file |
-| `/load` | Interactive list grouped by date; enter number, `1,2,3` to merge, or `H` for full history |
-| `/load <filename>` | Load a saved session by filename |
-| `/resume` | Restore the last auto-saved session (`mr_sessions/session_latest.json`) |
-| `/resume <filename>` | Load a specific file from `mr_sessions/` (or absolute path) |
-| `/history` | Print full conversation history |
-| `/context` | Show message count and token estimate |
-| `/cost` | Show token usage and estimated USD cost |
-| `/verbose` | Toggle verbose mode (tokens + thinking) |
-| `/thinking` | Toggle Extended Thinking (Claude only) |
-| `/permissions` | Show current permission mode |
-| `/permissions <mode>` | Set permission mode: `auto` / `accept-all` / `manual` |
-| `/cwd` | Show current working directory |
-| `/cwd <path>` | Change working directory |
-| `/memory` | List all persistent memories |
-| `/memory <query>` | Search memories by keyword (ranked by confidence × recency) |
-| `/memory consolidate` | AI-extract up to 3 long-term insights from the current session |
-| `/skills` | List available skills |
-| `/agents` | Show sub-agent task status |
-| `/mcp` | List configured MCP servers and their tools |
-| `/mcp reload` | Reconnect all MCP servers and refresh tools |
-| `/mcp reload <name>` | Reconnect a single MCP server |
-| `/mcp add <name> <cmd> [args]` | Add a stdio MCP server to user config |
-| `/mcp remove <name>` | Remove a server from user config |
-| `/voice` | Record voice, transcribe with Whisper, auto-submit as prompt |
-| `/voice status` | Show recording and STT backend availability |
-| `/voice lang <code>` | Set STT language (e.g. `zh`, `en`, `ja`; `auto` to detect) |
-| `/voice device` | List available input microphones and select one interactively |
-| `/image [prompt]` | Capture clipboard image and send to vision model with optional prompt |
-| `/img [prompt]` | Alias for `/image` |
-| `/proactive` | Show current proactive polling status (ON/OFF and interval) |
-| `/proactive <duration>` | Enable background sentinel polling (e.g. `5m`, `30s`, `1h`) |
-| `/proactive off` | Disable background polling |
-| `/cloudsave setup <token>` | Configure GitHub Personal Access Token for Gist sync |
-| `/cloudsave` | Upload current session to a private GitHub Gist |
-| `/cloudsave push [desc]` | Upload with an optional description |
-| `/cloudsave auto on\|off` | Toggle auto-upload on `/exit` |
-| `/cloudsave list` | List your cheetahclaws Gists |
-| `/cloudsave load <gist_id>` | Download and restore a session from Gist |
-| `/brainstorm` | Run a multi-persona AI brainstorm; prompts for agent count (2–100, default 5) |
-| `/brainstorm <topic>` | Focus the brainstorm on a specific topic; prompts for agent count |
-| `/ssj` | Open SSJ Developer Mode — interactive power menu with 10 workflow shortcuts |
-| `/worker` | Auto-implement all pending tasks from `brainstorm_outputs/todo_list.txt` |
-| `/worker <n,m,…>` | Implement specific pending tasks by number (e.g. `/worker 1,4,6`) |
-| `/worker --path <file>` | Use a custom todo file path instead of the default |
-| `/worker --workers <n>` | Limit the batch to N tasks per run (e.g. `/worker --workers 3`) |
-| `/telegram <token> <chat_id>` | Configure and start the Telegram bot bridge |
-| `/telegram` | Start the bridge using previously saved token + chat_id |
-| `/telegram stop` | Stop the Telegram bridge |
-| `/telegram status` | Show whether the bridge is running and the configured chat_id |
-| `/video [topic]` | AI video factory: story → voice → images → subtitles → `.mp4` |
-| `/video status` | Show video pipeline dependency availability |
-| `/video niches` | List all 10 viral content niches |
-| `/video --niche <id> [topic]` | Use a specific content niche |
-| `/video --short [topic]` | Generate vertical short format (9:16) |
-| `/tts [topic]` | TTS Content Factory: AI script → any voice style → MP3 audio file |
-| `/tts status` | Show TTS dependency availability (ffmpeg, edge-tts, API keys) |
-| `/checkpoint` | List all checkpoints (snapshots) for the current session |
-| `/checkpoint <id>` | Rewind to checkpoint — restore files and conversation to that snapshot |
-| `/checkpoint clear` | Delete all checkpoints for the current session |
-| `/rewind` | Alias for `/checkpoint` |
-| `/plan <description>` | Enter plan mode: read-only analysis, writes only to the plan file |
-| `/plan` | Show current plan file contents |
-| `/plan done` | Exit plan mode and restore original permissions |
-| `/plan status` | Show whether plan mode is active |
-| `/compact` | Manually compact the conversation (same as auto-compact but user-triggered) |
-| `/compact <focus>` | Compact with focus instructions (e.g. `/compact keep the auth refactor context`) |
-| `/init` | Create a `CLAUDE.md` template in the current working directory |
-| `/export` | Export the conversation as a Markdown file to `.nano_claude/exports/` |
-| `/export <filename>` | Export as Markdown or JSON (detected by `.json` extension) |
-| `/copy` | Copy the last assistant response to the clipboard |
-| `/status` | Show version, model, provider, permissions, session ID, token usage, and context % |
-| `/doctor` | Diagnose installation health: Python, git, API key, optional deps, CLAUDE.md, checkpoint disk usage |
-| `/exit` / `/quit` | Exit |
-
-**Switching models inside a session:**
-
-```
-[myproject] ❯ /model
-  Current model: claude-opus-4-6  (provider: anthropic)
-
-  Available models by provider:
-    anthropic     claude-opus-4-6, claude-sonnet-4-6, ...
-    openai        gpt-4o, gpt-4o-mini, o3-mini, ...
-    ollama        llama3.3, llama3.2, phi4, mistral, ...
-    ...
-
-[myproject] ❯ /model gpt-4o
-  Model set to gpt-4o  (provider: openai)
-
-[myproject] ❯ /model ollama/qwen2.5-coder
-  Model set to ollama/qwen2.5-coder  (provider: ollama)
-```
+See [Reference Guide](docs/guides/reference.md) for the full list of 36+ slash commands, tool descriptions, and configuration options.
 
 ---
 
-## Configuring API Keys
+## Contributing
 
-### Method 1: Environment Variables (recommended)
+We welcome contributions! See the [Contributing Guide](CONTRIBUTING.md) for project architecture, code conventions, and PR checklist.
+
+Quick start for contributors:
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-export GEMINI_API_KEY=AIza...
-export MOONSHOT_API_KEY=sk-...       # Kimi
-export DASHSCOPE_API_KEY=sk-...      # Qwen
-export ZHIPU_API_KEY=...             # Zhipu GLM
-export DEEPSEEK_API_KEY=sk-...       # DeepSeek
-export MINIMAX_API_KEY=...           # MiniMax
-```
-
-### Method 2: Set Inside the REPL (persisted)
-
-```
-/config anthropic_api_key=sk-ant-...
-/config openai_api_key=sk-...
-/config gemini_api_key=AIza...
-/config kimi_api_key=sk-...
-/config qwen_api_key=sk-...
-/config zhipu_api_key=...
-/config deepseek_api_key=sk-...
-/config minimax_api_key=...
-```
-
-Keys are saved to `~/.cheetahclaws/config.json` and loaded automatically on next launch.
-
-### Method 3: Edit the Config File Directly
-
-```json
-// ~/.cheetahclaws/config.json
-{
-  "model": "qwen/qwen-max",
-  "max_tokens": 8192,
-  "permission_mode": "auto",
-  "verbose": false,
-  "thinking": false,
-  "qwen_api_key": "sk-...",
-  "kimi_api_key": "sk-...",
-  "deepseek_api_key": "sk-...",
-  "minimax_api_key": "..."
-}
-```
-
----
-
-## Permission System
-
-| Mode | Behavior |
-|---|---|
-| `auto` (default) | Read-only operations always allowed. Prompts before Bash commands and file writes. |
-| `accept-all` | Never prompts. All operations proceed automatically. |
-| `manual` | Prompts before every single operation, including reads. |
-| `plan` | Read-only analysis mode. Only the plan file (`.nano_claude/plans/`) is writable. Entered via `/plan <desc>` or the `EnterPlanMode` tool. |
-
-**When prompted:**
-
-```
-  Allow: Run: git commit -am "fix bug"  [y/N/a(ccept-all)]
-```
-
-- `y` — approve this one action
-- `n` or Enter — deny
-- `a` — approve and switch to `accept-all` for the rest of the session
-
-**Commands always auto-approved in `auto` mode:**
-`ls`, `cat`, `head`, `tail`, `wc`, `pwd`, `echo`, `git status`, `git log`, `git diff`, `git show`, `find`, `grep`, `rg`, `python`, `node`, `pip show`, `npm list`, and other read-only shell commands.
-
----
-
-## Built-in Tools
-
-### Core Tools
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `Read` | Read file with line numbers | `file_path`, `limit`, `offset` |
-| `Write` | Create or overwrite file (shows diff) | `file_path`, `content` |
-| `Edit` | Exact string replacement (shows diff) | `file_path`, `old_string`, `new_string`, `replace_all` |
-| `Bash` | Execute shell command | `command`, `timeout` (default 30s) |
-| `Glob` | Find files by glob pattern | `pattern` (e.g. `**/*.py`), `path` |
-| `Grep` | Regex search in files (uses ripgrep if available) | `pattern`, `path`, `glob`, `output_mode` |
-| `WebFetch` | Fetch and extract text from URL | `url`, `prompt` |
-| `WebSearch` | Search the web via DuckDuckGo | `query` |
-
-### Notebook & Diagnostics Tools
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `NotebookEdit` | Edit a Jupyter notebook (`.ipynb`) cell | `notebook_path`, `new_source`, `cell_id`, `cell_type`, `edit_mode` (`replace`/`insert`/`delete`) |
-| `GetDiagnostics` | Get LSP-style diagnostics for a source file (pyright/mypy/flake8 for Python; tsc/eslint for JS/TS; shellcheck for shell) | `file_path`, `language` (optional override) |
-
-### Memory Tools
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `MemorySave` | Save or update a persistent memory | `name`, `type`, `description`, `content`, `scope` |
-| `MemoryDelete` | Delete a memory by name | `name`, `scope` |
-| `MemorySearch` | Search memories by keyword (or AI ranking) | `query`, `scope`, `use_ai`, `max_results` |
-| `MemoryList` | List all memories with age and metadata | `scope` |
-
-### Sub-Agent Tools
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `Agent` | Spawn a sub-agent for a task | `prompt`, `subagent_type`, `isolation`, `name`, `model`, `wait` |
-| `SendMessage` | Send a message to a named background agent | `name`, `message` |
-| `CheckAgentResult` | Check status/result of a background agent | `task_id` |
-| `ListAgentTasks` | List all active and finished agent tasks | — |
-| `ListAgentTypes` | List available agent type definitions | — |
-
-### Background & Autonomy Tools
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `SleepTimer` | Schedule a silent background timer; injects an automated wake-up prompt when it fires so the agent can resume monitoring or deferred tasks | `seconds` |
-
-### Skill Tools
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `Skill` | Invoke a skill by name from within the conversation | `name`, `args` |
-| `SkillList` | List all available skills with triggers and metadata | — |
-
-### MCP Tools
-
-MCP tools are discovered automatically from configured servers and registered under the name `mcp__<server>__<tool>`. Claude can use them exactly like built-in tools.
-
-| Example tool name | Where it comes from |
-|---|---|
-| `mcp__git__git_status` | `git` server, `git_status` tool |
-| `mcp__filesystem__read_file` | `filesystem` server, `read_file` tool |
-| `mcp__myserver__my_action` | custom server you configured |
-
-> **Adding custom tools:** See [Architecture Guide](docs/architecture.md#tool-registry) for how to register your own tools.
-
----
-
-## Memory
-
-The model can remember things across conversations using the built-in memory system.
-
-### Storage
-
-Memories are stored as individual markdown files in two scopes:
-
-| Scope | Path | Visibility |
-|---|---|---|
-| **User** (default) | `~/.cheetahclaws/memory/` | Shared across all projects |
-| **Project** | `.cheetahclaws/memory/` in cwd | Local to the current repo |
-
-A `MEMORY.md` index (≤ 200 lines / 25 KB) is auto-rebuilt on every save or delete and injected into the system prompt so the model always has an overview of what's been remembered.
-
-### Memory types
-
-| Type | Use for |
-|---|---|
-| `user` | Your role, preferences, background |
-| `feedback` | How you want the model to behave (corrections AND confirmations) |
-| `project` | Ongoing work, deadlines, decisions not in git history |
-| `reference` | Links to external systems (Linear, Grafana, Slack, etc.) |
-
-### Memory file format
-
-Each memory is a markdown file with YAML frontmatter:
-
-```markdown
----
-name: coding_style
-description: Python formatting preferences
-type: feedback
-created: 2026-04-02
-confidence: 0.95
-source: user
-last_used_at: 2026-04-05
-conflict_group: coding_style
----
-Prefer 4-space indentation and full type hints in all Python code.
-**Why:** user explicitly stated this preference.
-**How to apply:** apply to every Python file written or edited.
-```
-
-**Metadata fields** (new — auto-managed):
-
-| Field | Default | Description |
-|---|---|---|
-| `confidence` | `1.0` | Reliability score 0–1. Explicit user statements = 1.0; inferred preferences ≈ 0.8; auto-consolidated ≈ 0.8 |
-| `source` | `user` | Origin: `user` / `model` / `tool` / `consolidator` |
-| `last_used_at` | — | Updated automatically each time this memory is returned by MemorySearch |
-| `conflict_group` | — | Groups related memories (e.g. `writing_style`) for conflict tracking |
-
-### Conflict detection
-
-When `MemorySave` is called with a name that already exists but different content, the system reports the conflict before overwriting:
-
-```
-Memory saved: 'writing_style' [feedback/user]
-⚠ Replaced conflicting memory (was user-sourced, 100% confidence, written 2026-04-01).
-  Old content: Prefer formal, academic style...
-```
-
-### Ranked retrieval
-
-`MemorySearch` ranks results by **confidence × recency** (30-day exponential decay) rather than plain keyword order. Memories that haven't been used recently fade in priority. Each search hit also updates `last_used_at` so frequently-accessed memories stay prominent.
-
-```
-You: /memory python
-  [feedback/user] coding_style [conf:95% src:user]
-    Python formatting preferences
-    Prefer 4-space indentation and full type hints...
-```
-
-### `/memory consolidate` — auto-extract long-term insights
-
-After a meaningful session, run:
-
-```
-[myproject] ❯ /memory consolidate
-  Analyzing session for long-term memories…
-  ✓ Consolidated 2 memory/memories: user_prefers_direct_answers, avoid_trailing_summaries
-```
-
-The command sends a condensed session transcript to the model and asks it to identify up to **3** insights worth keeping long-term (user preferences, feedback corrections, project decisions). Extracted memories are saved with `confidence: 0.80` and `source: consolidator` — they **never overwrite** an existing memory that already has higher confidence.
-
-Good times to run `/memory consolidate`:
-- After correcting the model's behavior several times in a row
-- After a session where you shared project background or decisions
-- After completing a task with clear planning choices
-
-### Example interaction
-
-```
-You: Remember that I prefer 4-space indentation and type hints.
-AI: [calls MemorySave] Memory saved: 'coding_style' [feedback/user]
-
-You: /memory
-  1 memory/memories:
-  [feedback  |user   ] coding_style.md
-    Python formatting preferences
-
-You: /memory python
-  Found 1 relevant memory for 'python':
-  [feedback/user] coding_style
-    Prefer 4-space indentation and full type hints in all Python code.
-
-You: /memory consolidate
-  ✓ Consolidated 1 memory: user_prefers_verbose_commit_messages
-```
-
-**Staleness warnings:** Memories older than 1 day show a `⚠ stale` caveat — claims about file:line citations or code state may be outdated; verify before acting.
-
-**AI-ranked search:** `MemorySearch(query="...", use_ai=true)` uses the model to rank candidates by relevance before applying the confidence × recency re-ranking.
-
----
-
-## Skills
-
-Skills are reusable prompt templates that give the model specialized capabilities. Two built-in skills ship out of the box — no setup required.
-
-**Built-in skills:**
-
-| Trigger | Description |
-|---|---|
-| `/commit` | Review staged changes and create a well-structured git commit |
-| `/review [PR]` | Review code or PR diff with structured feedback |
-
-**Quick start — custom skill:**
-
-```bash
-mkdir -p ~/.cheetahclaws/skills
-```
-
-Create `~/.cheetahclaws/skills/deploy.md`:
-
-```markdown
----
-name: deploy
-description: Deploy to an environment
-triggers: [/deploy]
-allowed-tools: [Bash, Read]
-when_to_use: Use when the user wants to deploy a version to an environment.
-argument-hint: [env] [version]
-arguments: [env, version]
-context: inline
----
-
-Deploy $VERSION to the $ENV environment.
-Full args: $ARGUMENTS
-```
-
-Now use it:
-
-```
-You: /deploy staging 2.1.0
-AI: [deploys version 2.1.0 to staging]
-```
-
-**Argument substitution:**
-- `$ARGUMENTS` — the full raw argument string
-- `$ARG_NAME` — positional substitution by named argument (first word → first name)
-- Missing args become empty strings
-
-**Execution modes:**
-- `context: inline` (default) — runs inside current conversation history
-- `context: fork` — runs as an isolated sub-agent with fresh history; supports `model` override
-
-**Priority** (highest wins): project-level > user-level > built-in
-
-**List skills:** `/skills` — shows triggers, argument hint, source, and `when_to_use`
-
-**Skill search paths:**
-
-```
-./.cheetahclaws/skills/     # project-level (overrides user-level)
-~/.cheetahclaws/skills/     # user-level
-```
-
----
-
-## Sub-Agents
-
-The model can spawn independent sub-agents to handle tasks in parallel.
-
-**Specialized agent types** — built-in:
-
-| Type | Optimized for |
-|---|---|
-| `general-purpose` | Research, exploration, multi-step tasks |
-| `coder` | Writing, reading, and modifying code |
-| `reviewer` | Security, correctness, and code quality analysis |
-| `researcher` | Web search and documentation lookup |
-| `tester` | Writing and running tests |
-
-**Basic usage:**
-```
-You: Search this codebase for all TODO comments and summarize them.
-AI: [calls Agent(prompt="...", subagent_type="researcher")]
-    Sub-agent reads files, greps for TODOs...
-    Result: Found 12 TODOs across 5 files...
-```
-
-**Background mode** — spawn without waiting, collect result later:
-```
-AI: [calls Agent(prompt="run all tests", name="test-runner", wait=false)]
-AI: [continues other work...]
-AI: [calls CheckAgentResult / SendMessage to follow up]
-```
-
-**Git worktree isolation** — agents work on an isolated branch with no conflicts:
-```
-Agent(prompt="refactor auth module", isolation="worktree")
-```
-The worktree is auto-cleaned up if no changes were made; otherwise the branch name is reported.
-
-**Custom agent types** — create `~/.cheetahclaws/agents/myagent.md`:
-```markdown
----
-name: myagent
-description: Specialized for X
-model: claude-haiku-4-5-20251001
-tools: [Read, Grep, Bash]
----
-Extra system prompt for this agent type.
-```
-
-**List running agents:** `/agents`
-
-Sub-agents have independent conversation history, share the file system, and are limited to 3 levels of nesting.
-
----
-
-## MCP (Model Context Protocol)
-
-MCP lets you connect any external tool server — local subprocess or remote HTTP — and Claude can use its tools automatically. This is the same protocol Claude Code uses to extend its capabilities.
-
-### Supported transports
-
-| Transport | Config `type` | Description |
-|---|---|---|
-| **stdio** | `"stdio"` | Spawn a local subprocess (most common) |
-| **SSE** | `"sse"` | HTTP Server-Sent Events stream |
-| **HTTP** | `"http"` | Streamable HTTP POST (newer servers) |
-
-### Configuration
-
-Place a `.mcp.json` file in your project directory **or** edit `~/.cheetahclaws/mcp.json` for user-wide servers.
-
-```json
-{
-  "mcpServers": {
-    "git": {
-      "type": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-git"]
-    },
-    "filesystem": {
-      "type": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-filesystem", "/tmp"]
-    },
-    "my-remote": {
-      "type": "sse",
-      "url": "http://localhost:8080/sse",
-      "headers": {"Authorization": "Bearer my-token"}
-    }
-  }
-}
-```
-
-Config priority: `.mcp.json` (project) overrides `~/.cheetahclaws/mcp.json` (user) by server name.
-
-### Quick start
-
-```bash
-# Install a popular MCP server
-pip install uv        # uv includes uvx
-uvx mcp-server-git --help   # verify it works
-
-# Add to user config via REPL
-/mcp add git uvx mcp-server-git
-
-# Or create .mcp.json in your project dir, then:
-/mcp reload
-```
-
-### REPL commands
-
-```
-/mcp                          # list servers + their tools + connection status
-/mcp reload                   # reconnect all servers, refresh tool list
-/mcp reload git               # reconnect a single server
-/mcp add myserver uvx mcp-server-x   # add stdio server
-/mcp remove myserver          # remove from user config
-```
-
-### How Claude uses MCP tools
-
-Once connected, Claude can call MCP tools directly:
-
-```
-You: What files changed in the last git commit?
-AI: [calls mcp__git__git_diff_staged()]
-    → shows diff output from the git MCP server
-```
-
-Tool names follow the pattern `mcp__<server_name>__<tool_name>`. All characters
-that are not alphanumeric or `_` are automatically replaced with `_`.
-
-### Popular MCP servers
-
-| Server | Install | Provides |
-|---|---|---|
-| `mcp-server-git` | `uvx mcp-server-git` | git operations (status, diff, log, commit) |
-| `mcp-server-filesystem` | `uvx mcp-server-filesystem <path>` | file read/write/list |
-| `mcp-server-fetch` | `uvx mcp-server-fetch` | HTTP fetch tool |
-| `mcp-server-postgres` | `uvx mcp-server-postgres <conn-str>` | PostgreSQL queries |
-| `mcp-server-sqlite` | `uvx mcp-server-sqlite --db-path x.db` | SQLite queries |
-| `mcp-server-brave-search` | `uvx mcp-server-brave-search` | Brave web search |
-
-> Browse the full registry at [modelcontextprotocol.io/servers](https://modelcontextprotocol.io/servers)
-
----
-
-## Plugin System
-
-The `plugin/` package lets you extend cheetahclaws with additional tools, skills, and MCP servers from git repositories or local directories.
-
-### Install a plugin
-
-```bash
-/plugin install my-plugin@https://github.com/user/my-plugin
-/plugin install local-plugin@/path/to/local/plugin
-```
-
-### Manage plugins
-
-```bash
-/plugin                   # list installed plugins
-/plugin enable my-plugin  # enable a disabled plugin
-/plugin disable my-plugin # disable without uninstalling
-/plugin disable-all       # disable all plugins
-/plugin update my-plugin  # pull latest from git
-/plugin uninstall my-plugin
-/plugin info my-plugin    # show manifest details
-```
-
-### Plugin recommendation engine
-
-```bash
-/plugin recommend                    # auto-detect from project files
-/plugin recommend "docker database"  # recommend by keyword context
-```
-
-The engine matches your context against a curated marketplace (git-tools, python-linter, docker-tools, sql-tools, test-runner, diagram-tools, aws-tools, web-scraper) using tag and keyword scoring.
-
-### Plugin manifest (plugin.json)
-
-```json
-{
-  "name": "my-plugin",
-  "version": "0.1.0",
-  "description": "Does something useful",
-  "author": "you",
-  "tags": ["git", "python"],
-  "tools": ["tools"],        // Python module(s) that export TOOL_DEFS
-  "skills": ["skills/my.md"],
-  "mcp_servers": {},
-  "dependencies": ["httpx"]  // pip packages
-}
-```
-
-Alternatively use YAML frontmatter in `PLUGIN.md`.
-
-### Scopes
-
-| Scope | Location | Config |
-|-------|----------|--------|
-| user (default) | `~/.cheetahclaws/plugins/` | `~/.cheetahclaws/plugins.json` |
-| project | `.cheetahclaws/plugins/` | `.cheetahclaws/plugins.json` |
-
-Use `--project` flag: `/plugin install name@url --project`
-
----
-
-## AskUserQuestion Tool
-
-Claude can pause mid-task and interactively ask you a question before proceeding.
-
-**Example invocation by Claude:**
-```json
-{
-  "tool": "AskUserQuestion",
-  "question": "Which database should I use?",
-  "options": [
-    {"label": "SQLite", "description": "Simple, file-based"},
-    {"label": "PostgreSQL", "description": "Full-featured, requires server"}
-  ],
-  "allow_freetext": true
-}
-```
-
-**What you see in the terminal:**
-```
-❓ Question from assistant:
-   Which database should I use?
-
-  [1] SQLite — Simple, file-based
-  [2] PostgreSQL — Full-featured, requires server
-  [0] Type a custom answer
-
-Your choice (number or text):
-```
-
-- Select by number or type free text directly
-- Claude receives your answer and continues the task
-- 5-minute timeout (returns "(no answer — timeout)" if unanswered)
-
----
-
-## Task Management
-
-The `task/` package gives Claude (and you) a structured task list for tracking multi-step work within a session.
-
-### Tools available to Claude
-
-| Tool | Parameters | What it does |
-|------|-----------|--------------|
-| `TaskCreate` | `subject`, `description`, `active_form?`, `metadata?` | Create a task; returns `#id created: subject` |
-| `TaskUpdate` | `task_id`, `subject?`, `description?`, `status?`, `owner?`, `add_blocks?`, `add_blocked_by?`, `metadata?` | Update any field; `status='deleted'` removes the task |
-| `TaskGet` | `task_id` | Return full details of one task |
-| `TaskList` | _(none)_ | List all tasks with status icons and pending blockers |
-
-**Valid statuses:** `pending` → `in_progress` → `completed` / `cancelled` / `deleted`
-
-### Dependency edges
-
-```
-TaskUpdate(task_id="3", add_blocked_by=["1","2"])
-# Task 3 is now blocked by tasks 1 and 2.
-# Reverse edges are set automatically: tasks 1 and 2 get task 3 in their "blocks" list.
-```
-
-Completed tasks are treated as resolved — `TaskList` hides their blocking effect on dependents.
-
-### Persistence
-
-Tasks are saved to `.cheetahclaws/tasks.json` in the current working directory after every mutation and reloaded on first access.
-
-### REPL commands
-
-```
-/tasks                    list all tasks
-/tasks create <subject>   quick-create a task
-/tasks start <id>         mark in_progress
-/tasks done <id>          mark completed
-/tasks cancel <id>        mark cancelled
-/tasks delete <id>        remove a task
-/tasks get <id>           show full details
-/tasks clear              delete all tasks
-```
-
-### Typical Claude workflow
-
-```
-User: implement the login feature
-
-Claude:
-  TaskCreate(subject="Design auth schema", description="JWT vs session")  → #1
-  TaskCreate(subject="Write login endpoint", description="POST /auth/login") → #2
-  TaskCreate(subject="Write tests", description="Unit + integration") → #3
-  TaskUpdate(task_id="2", add_blocked_by=["1"])
-  TaskUpdate(task_id="3", add_blocked_by=["2"])
-
-  TaskUpdate(task_id="1", status="in_progress", active_form="Designing schema")
-  ... (does the work) ...
-  TaskUpdate(task_id="1", status="completed")
-  TaskList()  → task 2 is now unblocked
-  ...
-```
-
----
-
-## Voice Input
-
-CheetahClaws v3.05 adds a fully offline voice-to-prompt pipeline. Speak your request — it is transcribed and submitted as if you had typed it.
-
-### Quick start
-
-```bash
-# 1. Install a recording backend (choose one)
-pip install sounddevice        # recommended: cross-platform, no extra binary
-# sudo apt install alsa-utils  # Linux arecord fallback
-# sudo apt install sox         # SoX rec fallback
-
-# 2. Install a local STT backend (recommended — works offline, no API key)
-pip install faster-whisper numpy
-
-# 3. Start CheetahClaws and speak
-cheetahclaws
-[myproject] ❯ /voice
-  🎙  Listening… (speak now, auto-stops on silence, Ctrl+C to cancel)
-  🎙  ████
-✓  Transcribed: "fix the authentication bug in user.py"
-[auto-submitting…]
-```
-
-### STT backends (tried in order)
-
-| Backend | Install | Notes |
-|---|---|---|
-| `faster-whisper` | `pip install faster-whisper` | **Recommended** — local, offline, fastest, GPU optional |
-| `openai-whisper` | `pip install openai-whisper` | Local, offline, original OpenAI model |
-| OpenAI Whisper API | set `OPENAI_API_KEY` | Cloud, requires internet + API key |
-
-Override the Whisper model size with `NANO_CLAUDE_WHISPER_MODEL` (default: `base`):
-
-```bash
-export NANO_CLAUDE_WHISPER_MODEL=small   # better accuracy, slower
-export NANO_CLAUDE_WHISPER_MODEL=tiny    # fastest, lightest
-```
-
-### Recording backends (tried in order)
-
-| Backend | Install | Notes |
-|---|---|---|
-| `sounddevice` | `pip install sounddevice` | **Recommended** — cross-platform, Python-native |
-| `arecord` | `sudo apt install alsa-utils` | Linux ALSA, no pip needed |
-| `sox rec` | `sudo apt install sox` / `brew install sox` | Built-in silence detection |
-
-### Keyterm boosting
-
-Before each recording, CheetahClaws extracts coding vocabulary from:
-- **Git branch** (e.g. `feat/voice-input` → "feat", "voice", "input")
-- **Project root name** (e.g. "cheetahclaws")
-- **Recent source file stems** (e.g. `authentication_handler.py` → "authentication", "handler")
-- **Global coding terms**: `MCP`, `grep`, `TypeScript`, `OAuth`, `regex`, `gRPC`, …
-
-These are passed as Whisper's `initial_prompt` so the STT engine prefers correct spellings of coding terms.
-
-### Commands
-
-| Command | Description |
-|---|---|
-| `/voice` | Record voice and auto-submit the transcript as your next prompt |
-| `/voice status` | Show which recording and STT backends are available, plus the active microphone |
-| `/voice lang <code>` | Set transcription language (`en`, `zh`, `ja`, `de`, `fr`, … default: `auto`) |
-| `/voice device` | List all available input microphones and select one interactively; persisted for the session |
-
-### Selecting a microphone
-
-On systems with multiple audio interfaces (USB headsets, virtual devices, etc.) you can pick the exact input device:
-
-```
-[myproject] ❯ /voice device
-  🎙  Available input devices:
-    0. Built-in Microphone
-    1. USB Headset (USB Audio)  ◀  (currently selected)
-    2. Virtual Input (BlackHole)
-  Select device # (Enter to cancel): 1
-✓  Microphone set to: [1] USB Headset (USB Audio)
-```
-
-The selected device is shown in `/voice status` and used for all subsequent recordings until you change it or restart.
-
-### How it compares to Claude Code
-
-| | Claude Code | CheetahClaws v3.05 |
-|---|---|---|
-| STT service | Anthropic private WebSocket (`voice_stream`) | `faster-whisper` / `openai-whisper` / OpenAI API |
-| Requires Anthropic OAuth | Yes | **No** |
-| Works offline | No | **Yes** (with local Whisper) |
-| Keyterm hints | Deepgram `keyterms` param | Whisper `initial_prompt` (git + files + vocab) |
-| Language support | Server-allowlisted codes | Any language Whisper supports |
-
----
-
-## Brainstorm
-
-`/brainstorm` runs a structured multi-persona AI debate over your project, then synthesizes all perspectives into an actionable plan.
-
-### How it works
-
-1. **Context snapshot** — reads `README.md`, `CLAUDE.md`, and root file listing from the current working directory.
-2. **Agent count** — you are prompted to choose how many agents (2–100, default 5). Press Enter to use the default.
-3. **Dynamic persona generation** — the model generates N expert roles tailored to your topic. Software topics get architects and engineers; geopolitics gets analysts, diplomats, and economists; business gets strategists and market experts. Falls back to built-in tech personas if generation fails.
-4. **Agents debate sequentially**, each building on the previous responses.
-5. **Output saved** to `brainstorm_outputs/brainstorm_YYYYMMDD_HHMMSS.md` in the current directory.
-6. **Synthesis** — the main agent reads the saved file and produces a prioritized Master Plan.
-
-**Example personas by topic:**
-
-| Topic | Example Generated Personas |
-|---|---|
-| Software architecture | 🏗️ Architect · 💡 Product Innovator · 🛡️ Security Engineer · 🔧 Code Quality Lead · ⚡ Performance Specialist |
-| US-Iran geopolitics | 🌍 Geopolitical Analyst · ⚖️ International Law Expert · 💰 Energy Economist · 🎖️ Military Strategist · 🕊️ Conflict Mediator |
-| Business strategy | 📈 Market Strategist · 💼 Operations Lead · 🔍 Competitive Intelligence · 💡 Innovation Director · 📊 Financial Analyst |
-
-### Usage
-
-```
-[myproject] ❯ /brainstorm
-  How many agents? (2-100, default 5) > 5
-
-[myproject] ❯ /brainstorm improve plugin architecture
-  How many agents? (2-100, default 5) > 3
-
-[myproject] ❯ /brainstorm US-Iran geopolitics
-  How many agents? (2-100, default 5) > 7
-```
-
-### Example output
-
-```
-[myproject] ❯ /brainstorm medical research funding
-  How many agents? (2-100, default 5) > 3
-Generating 3 topic-appropriate expert personas...
-Starting 3-Agent Brainstorming Session on: medical research funding
-Generating diverse perspectives...
-🩺 Clinical Trials Director is thinking...
-  └─ Perspective captured.
-⚖️ Medical Ethics Committee Member is thinking...
-  └─ Perspective captured.
-💰 Health Economics Policy Analyst is thinking...
-  └─ Perspective captured.
-✓  Brainstorming complete! Results saved to brainstorm_outputs/brainstorm_20260405_224117.md
-
-   ── Analysis from Main Agent ──
-[synthesized Master Plan streams here…]
-```
-
-### Notes
-
-- Brainstorm uses the **currently selected model** (`/model` to check). A capable model (Claude Sonnet/Opus, GPT-4o, or a large local model) gives the best results.
-- With many agents (20+) the session can take several minutes depending on model speed.
-- Install `faker` (`pip install faker`) for randomized persona names; falls back to built-in names otherwise.
-- Output files accumulate in `brainstorm_outputs/` — already added to `.gitignore` by v3.05.5.
-- If output looks garbled in SSH (repeated lines), run `/config rich_live=false` to disable Rich Live streaming.
-
----
-
-## SSJ Developer Mode
-
-`/ssj` opens a persistent interactive power menu — a single entry point for the most common development workflows, so you never have to remember command names.
-
-<div align=center>
-<img src="https://github.com/SafeRL-Lab/clawspring/blob/main/docs/ssj_demo.gif" width="850"/>
-</div>
-
-### Menu options
-
-| # | Name | What it does |
-|---|------|--------------|
-| 1 | 💡 Brainstorm | Multi-persona AI debate → Master Plan → auto-generates `brainstorm_outputs/todo_list.txt` |
-| 2 | 📋 Show TODO | View `brainstorm_outputs/todo_list.txt` with ✓/○ indicators and pending task numbers |
-| 3 | 👷 Worker | Auto-implement pending tasks (all, or select by number) |
-| 4 | 🧠 Debate | Pick a file and choose agent count — expert panel debates design round-by-round; result saved next to the file |
-| 5 | ✨ Propose | Pick a file — AI proposes specific improvements with code |
-| 6 | 🔎 Review | Pick a file — structured code review with 1–10 ratings per dimension |
-| 7 | 📘 Readme | Pick a file — auto-generate a professional README for it |
-| 8 | 💬 Commit | Analyse git diff and suggest a conventional commit message |
-| 9 | 🧪 Scan | Summarise all staged/unstaged changes and suggest next steps |
-| 10 | 📝 Promote | Read the latest brainstorm output → convert ideas to `todo_list.txt` tasks |
-| 11 | 🎬 Video | Launch the Video Content Factory wizard (if `modular/video` is available) |
-| 12 | 🎙 TTS | Launch the TTS Content Factory wizard (if `modular/voice` is available) |
-| 0 | 🚪 Exit | Return to the main REPL |
-
-### Usage
-
-```
-[myproject] ❯ /ssj
-
-╭─ SSJ Developer Mode ⚡ ─────────────────────────
-│
-│   1.  💡  Brainstorm — Multi-persona AI debate
-│   2.  📋  Show TODO  — View todo_list.txt
-│   3.  👷  Worker     — Auto-implement pending tasks
-│   4.  🧠  Debate     — Expert debate on a file
-│   5.  ✨  Propose    — AI improvement for a file
-│   6.  🔎  Review     — Quick file analysis
-│   7.  📘  Readme     — Auto-generate README.md
-│   8.  💬  Commit     — AI-suggested commit message
-│   9.  🧪  Scan       — Analyze git diff
-│  10.  📝  Promote    — Idea to tasks
-│  11.  🎬  Video      — Video Content Factory
-│  12.  🎙  TTS        — TTS Content Factory
-│   0.  🚪  Exit SSJ Mode
-│
-╰──────────────────────────────────────────────
-
-  ⚡ SSJ » 1
-  Topic (Enter for general): cheetahclaws plugin system
-
-  # → Brainstorm spins up, saves to brainstorm_outputs/, generates todo_list.txt
-  # → Menu re-opens automatically after each action
-
-  ⚡ SSJ » 2
-  # → Shows numbered pending tasks from brainstorm_outputs/todo_list.txt
-
-  ⚡ SSJ » 3
-  Task # (Enter for all, or e.g. 1,4,6): 2
-  # → Worker implements task #2 and marks it done
-```
-
-### Slash command passthrough
-
-Any `/command` typed at the `⚡ SSJ »` prompt is passed through to the REPL:
-
-```
-  ⚡ SSJ » /model gpt-4o
-  # → switches model, then re-opens SSJ menu
-
-  ⚡ SSJ » /exit
-  # → exits cheetahclaws immediately
-```
-
-### Worker command
-
-`/worker` (also accessible as SSJ option 3) reads `brainstorm_outputs/todo_list.txt` and auto-implements each pending task:
-
-```
-[myproject] ❯ /worker
-  ✓ Worker starting — 3 task(s) to implement
-    1. ○ Add animated brainstorm spinner
-    2. ○ Implement Telegram typing indicator
-    3. ○ Write SSJ demo GIF for README
-
-  ── Worker (1/3): Add animated brainstorm spinner ──
-  [model reads code, implements the change, marks task done]
-
-[myproject] ❯ /worker 2,3
-  # Implement only tasks 2 and 3
-
-[myproject] ❯ /worker --path docs/tasks.md
-  # Use a custom todo file
-
-[myproject] ❯ /worker --workers 2
-  # Process only the first 2 pending tasks this run
-```
-
-**Smart path detection** — if you pass a brainstorm output file (`.md`) by mistake, Worker detects it and offers to redirect to the matching `todo_list.txt` in the same folder. If that file does not yet exist, it offers to generate `todo_list.txt` from the brainstorm output first (SSJ Promote), then run Worker automatically.
-
-### Debate command
-
-SSJ option 4 runs a structured multi-round expert debate on any file:
-
-```
-  ⚡ SSJ » 4
-
-  Files in brainstorm_outputs/:
-    1. brainstorm_20260406_143022.md
-    2. cheetahclaws.py
-
-  File to debate #: 2
-  Number of debate agents (Enter for 2): 3
-  ℹ Debate result will be saved to: cheetahclaws_debate_143055.md
-
-⚔️  Assembling expert panel...
-  Expert 1: 🏗️ Architecture Lead — focus: system design & modularity
-  Expert 2: 🔐 Security Engineer — focus: attack surface & input validation
-  Expert 3: ⚡ Performance Specialist — focus: latency & memory usage
-
-⚔️  Round 1/5 — Expert 1 thinking...
-  [Architecture Lead gives opening argument...]
-
-💬  Round 1/5 — Expert 2 formulating...
-  [Security Engineer responds...]
-  ...
-
-📜  Drafting final consensus...
-  [model writes consensus + saves transcript]
-✓ Debate complete. Saved to cheetahclaws_debate_143055.md
-```
-
-- Agent count is configurable (minimum 2, default 2). Rounds are set to `agents × 2 − 1` for a full open-close structure.
-- An animated spinner shows the current round and expert (`⚔️ Round 2/3 — Expert 1 thinking...`), stopping the moment that expert starts outputting.
-- The full debate transcript and ranked consensus are saved to `<filename>_debate_HHMMSS.md` **in the same directory as the debated file**.
-
----
-
-## Telegram Bridge
-
-`/telegram` turns cheetahclaws into a Telegram bot — receive messages from your phone, run the model with full tool access, and reply automatically.
-
-<div align=center>
-<img src="https://github.com/SafeRL-Lab/clawspring/blob/main/docs/telegram_demo.gif" width="850"/>
-</div>
-
-### Setup (one-time)
-
-1. Open [@BotFather](https://t.me/BotFather) in Telegram → `/newbot` → copy the token.
-2. Send any message to your new bot (e.g. "hi"), then open the URL below in your browser — replace `<TOKEN>` with your real token:
-
-```
-https://api.telegram.org/bot<TOKEN>/getUpdates
-```
-
-The response is JSON. Find `"chat"` → `"id"` — that number is your chat ID:
-
-```json
-{
-  "ok": true,
-  "result": [
-    {
-      "update_id": 100000001,
-      "message": {
-        "from": { "id": 987654321, "first_name": "Zhang" },
-        "chat": {
-          "id": 987654321,
-          "type": "private"
-        },
-        "text": "hi"
-      }
-    }
-  ]
-}
-```
-
-> **Tip:** if `result` is empty, go back to Telegram, send another message to your bot, then refresh the URL.
-
-3. Configure cheetahclaws (example with the values above):
-
-```
-[myproject] ❯ /telegram 7812345678:AAFxyz123abcDEF456ghiJKL789 987654321
-  ✓ Telegram config saved.
-  ✓ Connected to @your_bot_name. Starting bridge...
-  ✓ Telegram bridge active. Chat ID: 987654321
-  ℹ Send messages to your bot — they'll be processed here.
-  ℹ Stop with /telegram stop or send /stop in Telegram.
-```
-
-Token and chat_id are saved to `~/.cheetahclaws/config.json`. On next launch the bridge **auto-starts** if configured — the startup banner shows `flags: [telegram]`.
-
-### How it works
-
-```
-Phone (Telegram)                  cheetahclaws terminal
-──────────────────                ──────────────────────────
-"List Python files"      →        📩 Telegram: List Python files
-                                  [typing indicator sent...]
-                                  ⚙ Glob(**/*.py) → 5 files
-                                  ⚙ response assembled
-                          ←       "agent.py, tools.py, ..."
-```
-
-- **Typing indicator** is sent every 4 seconds while the model processes, so the chat feels responsive.
-- **Unauthorized senders** receive `⛔ Unauthorized.` and their messages are dropped.
-- **Slash command passthrough**: send `/cost`, `/model gpt-4o`, `/clear`, etc. from Telegram and they execute in cheetahclaws.
-- **Interactive menus over Telegram**: commands with interactive prompts (e.g. `/ollama` model picker, `/permission`, `/checkpoint` restore) now run in a background thread so the poll loop stays free. The menu options are sent as a Telegram message and the next reply you send is used as the selection.
-- **`/stop` or `/off`** sent from Telegram stops the bridge gracefully.
-
-### Photo & Voice support
-
-You can send photos and voice messages directly to the bot — no extra commands needed.
-
-**Photos**
-
-Send any photo (with or without a caption). CheetahClaws downloads the highest-resolution version, encodes it as Base64, and passes it to the active vision model alongside the caption text. If no caption is provided, the default prompt is `"What do you see in this image? Describe it in detail."`.
-
-> **Requirement:** the active model must support vision (e.g. `claude-opus-4-6`, `gpt-4o`, `gemini-2.0-flash`, or any Ollama vision model such as `llava`). Use `/model` to switch if needed.
-
-**Voice messages & audio files**
-
-Send a voice note (OGG) or audio file (MP3). CheetahClaws transcribes it automatically and submits the transcript as your next query. The transcription is echoed back to the chat before the model responds.
-
-> **Requirements:**
-> - **`ffmpeg`** must be installed for audio conversion (`sudo apt install ffmpeg` / `brew install ffmpeg`).
-> - At least one STT backend must be available (tried in order):
->   1. `faster-whisper` — `pip install faster-whisper` (local, offline, recommended)
->   2. `openai-whisper` — `pip install openai-whisper` (local, offline)
->   3. OpenAI Whisper API — set `OPENAI_API_KEY` (cloud fallback, requires internet)
->
-> If `ffmpeg` is missing, voice messages will fail with `⚠ Could not download voice message.`
-
-### Commands
-
-| Command | Description |
-|---|---|
-| `/telegram <token> <chat_id>` | Configure token + chat_id, then start the bridge |
-| `/telegram` | Start the bridge using saved config |
-| `/telegram status` | Show running state and chat_id |
-| `/telegram stop` | Stop the bridge |
-
-### Auto-start
-
-If both `telegram_token` and `telegram_chat_id` are set in `~/.cheetahclaws/config.json`, the bridge starts automatically on every cheetahclaws launch:
-
-```
-╭─ CheetahClaws ────────────────────────────────╮
-│  Model:       claude-opus-4-6
-│  Permissions: auto   flags: [telegram]
-│  Type /help for commands, Ctrl+C to cancel        │
-╰───────────────────────────────────────────────────╯
-✓ Telegram bridge started (auto). Bot: @your_bot_name
-```
-
----
-
-## Video Content Factory
-
-`/video` is an AI-powered viral video pipeline. Give it a topic — or your own script — and it produces a fully narrated, illustrated, subtitle-burned `.mp4` ready to upload.
-
-```
-[AI mode]     Topic → AI Story → TTS Voice → Images → PIL Subtitles → Final Video
-[Script mode] Your Text → TTS Voice → Images → PIL Subtitles (same text) → Final Video
-```
-
-### Quick start (zero-cost path)
-
-```bash
-# Install free dependencies
-pip install edge-tts Pillow imageio-ffmpeg
-sudo apt install ffmpeg          # or: brew install ffmpeg / conda install ffmpeg
-
-# Launch interactive wizard
-[myproject] ❯ /video
-```
-
-The wizard walks you through every setting with `Enter = Auto` defaults at every step. Type `b` to go back, `q` to quit at any point.
-
-### Wizard walkthrough
-
-```
-╭─ 🎬 Video Content Factory ─────────────────────╮
-│  Enter=Auto on every step  ·  b=back  ·  q=quit │
-╰─────────────────────────────────────────────────╯
-
-[0] Content mode
-  1. Auto         (AI generates story from your topic)
-  2. Custom script (you provide the text — TTS reads it as narration + subtitles)
-
-[1] Topic / idea        ← skip if using custom script
-[2] Source folder       ← optional: images / audio / video / text files
-[3] Language            ← auto-detects from topic; supports custom language entry
-[4] Style / Niche       ← 10 viral niches + auto-viral + custom style
-[5] Format              ← Landscape 16:9 (YouTube) or Short 9:16 (TikTok / Reels)
-[6] Duration            ← 30s · 1 min · 2 min · 3 min · 5 min · custom
-[7] Voice (TTS)         ← auto / Edge (free) / Gemini / ElevenLabs
-[8] Images              ← auto / web-search / gemini-web / placeholder
-[9] Video Quality       ← auto / high / medium / low / minimal
-[10] Subtitles          ← Auto (Whisper) / Story text / Custom text / None
-[11] Output path        ← default: ./video_output/
-```
-
-#### Content mode: Custom script
-
-Select **"2. Custom script"** to provide your own narration text instead of having the AI generate a story:
-
-```
-[0] Content mode
-  Pick mode: 2
-
-  Paste your narration text (type END on a new line when done):
-  CheetahClaws is a lightweight Python AI coding assistant
-  that supports any model — Claude, GPT, Gemini, or local Ollama.
-  END
-  → Script: 18 words
-```
-
-The TTS engine reads the script aloud. The same text is split into timed subtitle entries and burned into the video with PIL. No Whisper, no AI story generation — works fully offline.
-
-Steps skipped in script mode: Topic, Style/Niche, Duration (auto-derived from word count).
-
-### Pipeline steps
-
-| Step | What happens |
-|---|---|
-| **1. Story / Script** | AI generates viral story (AI mode) OR uses your text directly (script mode) |
-| **2. Voice (TTS)** | Edge TTS / Gemini TTS / ElevenLabs narrates the text |
-| **3. Subtitles** | PIL renders subtitles as transparent PNGs; ffmpeg overlays them — works for any language |
-| **4. Images** | Gemini Web (Imagen 3) → web search (Pexels / Wikimedia) → placeholder |
-| **5. Assembly** | zoompan clips + audio → two-pass encode with PIL subtitle burn |
-
-### Subtitle engine
-
-Subtitles are rendered with **Pillow + NotoSansSC font** — not libass. This means:
-
-- Chinese, Japanese, Korean, Cyrillic, Arabic, Thai all render correctly
-- Font is downloaded once to `~/.cheetahclaws/fonts/` on first run (~8 MB)
-- Two-pass approach: fast `-c:v copy` assembly, then PIL PNG overlays via `filter_complex`
-- Falls back to no subtitles if PIL fails — never crashes the pipeline
-
-**Subtitle source options** (wizard step 10):
-
-| Option | How | Best for |
-|---|---|---|
-| Auto | Whisper transcription (`faster-whisper`) | When exact word timing matters |
-| Story text | Same text TTS reads, timed proportionally | All languages; no Whisper needed |
-| Custom text | Paste your own text | Translations, alternate language |
-| None | Skip subtitles | Music videos, no-sub content |
-
-### Image backends
-
-| Engine | How | Cost | Quality |
-|---|---|---|---|
-| `gemini-web` | Playwright + Imagen 3 via Gemini web | **Free** | High |
-| `web-search` | Pexels → Wikimedia Commons → Picsum | **Free** | Medium |
-| `placeholder` | Gradient slides with prompt text | **Free** | N/A |
-| `auto` | gemini-web → web-search → placeholder | — | Best available |
-
-**Gemini Web images (recommended free path):**
-
-One-time login (session is saved):
-
-```bash
-cd ../v-content-creator
-python -c "from gemini_image_gen import verify_login_interactive; verify_login_interactive()"
-```
-
-**Web search images** work out-of-the-box with no login or API key. The model generates optimized search queries from the story/script content. Sources tried in order: Pexels → Wikimedia Commons → Lorem Picsum (always succeeds).
-
-**AI source image selection:** when `--source <dir>` contains more images than needed, the model reads filenames and story content to rank and select the most relevant ones. Keyword-scoring fallback if the model is unavailable.
-
-### TTS backends
-
-| Engine | How | Cost | Quality |
-|---|---|---|---|
-| `gemini` | Gemini TTS API (`GEMINI_API_KEY`) | Free tier | Good |
-| `elevenlabs` | ElevenLabs REST (`ELEVENLABS_API_KEY`) | Paid | Excellent |
-| `edge` | Microsoft Edge TTS (`pip install edge-tts`) | **Free** | Good |
-| `auto` | Try gemini → elevenlabs → edge | — | Best available |
-
-Language-appropriate voices are auto-selected (e.g. `zh-CN-YunxiNeural` for Chinese, `ja-JP-KeitaNeural` for Japanese).
-
-### Content niches (AI mode)
-
-10 built-in viral content niches, weighted toward the most viral:
-
-| Niche ID | Name | Style |
-|---|---|---|
-| `misterio_real` | True Crime | Documentary, investigative |
-| `confesiones` | Dark Confessions | Intimate, vulnerable |
-| `suspenso_cotidiano` | Everyday Suspense | Mundane → disturbing |
-| `ciencia_ficcion` | Sci-Fi / Black Mirror | Near-future, tech noir |
-| `drama_humano` | Human Drama | Emotional, raw |
-| `terror_psicologico` | Psychological Horror | Insidious, ambiguous |
-| `folklore_latam` | Latin American Folklore | Magical realism |
-| `venganza` | Revenge / Poetic Justice | Calculated, satisfying |
-| `supervivencia` | Survival Stories | Adrenaline, extreme |
-| `misterio_digital` | Digital Mystery | Internet creepy, cyber horror |
-
-Story generation uses a 3-tier fallback: structured prompt → simplified structured → free-form, ensuring a story is always produced even with small local models.
-
-### Source materials (`--source`)
-
-Pass `--source <dir>` (or enter path in the wizard) to pre-load your own materials:
-
-| File type | Behaviour |
-|---|---|
-| Images (`.jpg`, `.png`, …) | Used directly instead of AI/web-search images; model selects most relevant |
-| Audio (`.mp3`, `.wav`) | Used as narration, skipping TTS |
-| Video (`.mp4`, `.mov`, …) | Audio track extracted and used as narration; frames extracted as images |
-| Text (`.txt`, `.md`, …) | Read and injected as story context / topic direction |
-
-A single file (e.g. a README or script) can also be passed — it is read and injected as context.
-
-### Output files
-
-```
-video_output/
-├── video_20260407_153000_my_title.mp4        # Final video
-└── video_20260407_153000_my_title_info.json  # Metadata (title, niche, word count, engines)
-
-video_tmp/batch_20260407_153000/story/
-├── story.txt     # Story or script text
-├── audio.mp3     # TTS narration
-├── subs.srt      # Subtitle file (if generated)
-└── images/       # img_00.png … img_07.png
-```
-
-### Requirements summary
-
-| Requirement | Install | Notes |
-|---|---|---|
-| `ffmpeg` | `sudo apt install ffmpeg` or `pip install imageio-ffmpeg` | Required |
-| `Pillow` | `pip install Pillow` | Required for subtitle rendering + images |
-| `edge-tts` | `pip install edge-tts` | Free TTS (recommended) |
-| `faster-whisper` | `pip install faster-whisper` | Auto subtitle transcription (optional) |
-| `playwright` | `pip install playwright && playwright install chromium` | Gemini Web images (optional) |
-| `GEMINI_API_KEY` | env var | Gemini TTS + story generation |
-| `ELEVENLABS_API_KEY` | env var | ElevenLabs TTS (optional) |
-
----
-
-## TTS Content Factory
-
-`/tts` is an AI-powered audio generation wizard. Give it a topic — or paste your own script — and it produces a narrated MP3 in any voice style.
-
-### Quick start
-
-```bash
-# Install free TTS backend (no API key needed)
-pip install edge-tts
-
-# Launch interactive wizard
-[myproject] ❯ /tts
-```
-
-The wizard walks through every setting with `Enter = Auto` at every step. Type `b` to go back, `q` to quit.
-
-### Wizard walkthrough
-
-```
-╭─ 🎙 TTS Content Factory ────────────────────────────────╮
-│  Enter=Auto on every step  ·  b=back  ·  q=quit         │
-╰─────────────────────────────────────────────────────────╯
-
-[0] Content mode
-  1. Auto         (AI generates script from your topic)
-  2. Custom text  (paste your own script → TTS reads every word)
-
-[1] Voice style   ← narrator / newsreader / storyteller / ASMR / motivational /
-                     documentary / children / podcast / meditation / custom
-[2] Duration      ← Auto~1 min / 30s / 1m / 2m / 3m / 5m / custom  (AI mode only)
-[3] TTS Engine    ← Auto / Edge (free) / Gemini / ElevenLabs
-[4] Voice         ← Auto (style preset) / individual Gemini or Edge voice
-[5] Output folder ← default: ./tts_output/
-```
-
-Output files:
-
-```
-tts_output/
-├── tts_1712345678.mp3          # synthesized audio
-└── tts_1712345678_script.txt   # companion script text
-```
-
-### Voice style presets
-
-| Style | Description | Default Gemini voice | Default Edge voice |
-|---|---|---|---|
-| Narrator | Calm, authoritative | Charon | en-US-GuyNeural |
-| Newsreader | Professional, neutral | Aoede | en-US-AriaNeural |
-| Storyteller | Dramatic, immersive | Fenrir | en-US-DavisNeural |
-| ASMR | Soft, intimate, relaxing | Aoede | en-US-JennyNeural |
-| Motivational | Energetic, inspiring | Puck | en-US-TonyNeural |
-| Documentary | Informative, thoughtful | Charon | en-GB-RyanNeural |
-| Children | Warm, playful | Kore | en-US-AnaNeural |
-| Podcast | Conversational, casual | Puck | en-US-GuyNeural |
-| Meditation | Slow, peaceful | Aoede | en-US-JennyNeural |
-| Custom | Describe your own style | Charon | en-US-GuyNeural |
-
-### TTS backends
-
-| Engine | How | Cost | Quality |
-|---|---|---|---|
-| `gemini` | Gemini TTS API (`GEMINI_API_KEY`) | Free tier | Good |
-| `elevenlabs` | ElevenLabs REST (`ELEVENLABS_API_KEY`) | Paid | Excellent |
-| `edge` | Microsoft Edge TTS (`pip install edge-tts`) | **Free** | Good |
-| `auto` | Try gemini → elevenlabs → edge | — | Best available |
-
-**CJK auto-voice:** if the text is predominantly Chinese/Japanese/Korean and an English voice is selected, the backend automatically switches to `zh-CN-XiaoxiaoNeural` so every character is spoken — not silently skipped.
-
-**Long-text chunking:** texts over 2 000 chars are split at sentence boundaries, synthesized in chunks, and concatenated with ffmpeg. The full script is always read aloud regardless of length.
-
-### Requirements
-
-| Requirement | Install | Notes |
-|---|---|---|
-| `edge-tts` | `pip install edge-tts` | Free TTS (always-available fallback) |
-| `ffmpeg` | `sudo apt install ffmpeg` or `pip install imageio-ffmpeg` | Required for multi-chunk concat |
-| `GEMINI_API_KEY` | env var | Gemini TTS (optional) |
-| `ELEVENLABS_API_KEY` | env var | ElevenLabs TTS (optional) |
-
-Check status: `/tts status`
-
-### Also in SSJ mode
-
-`/tts` is available as option **12** in the SSJ Developer Mode menu, so you can chain it with brainstorm, worker, and video workflows in a single session.
-
----
-
-## Proactive Background Monitoring
-
-CheetahClaws v3.05.2 adds a **sentinel daemon** that automatically wakes the agent after a configurable period of inactivity — no user prompt required. This enables use cases like continuous log monitoring, market script polling, or scheduled code checks.
-
-### Quick start
-
-```
-[myproject] ❯ /proactive 5m
-Proactive background polling: ON  (triggering every 300s of inactivity)
-
-[myproject] ❯ keep monitoring the build log and alert me if errors appear
-
-╭─ Claude ● ─────────────────────────
-│ Understood. I'll check the build log each time I wake up.
-
-[Background Event Triggered]
-╭─ Claude ● ─────────────────────────
-│ ⚙ Bash(tail -50 build.log)
-│ ✓ → Build failed: ImportError in auth.py line 42
-│ **Action needed:** fix the import before the next CI run.
-```
-
-### Commands
-
-| Command | Description |
-|---|---|
-| `/proactive` | Show current status (ON/OFF and interval) |
-| `/proactive 5m` | Enable — trigger every 5 minutes of inactivity |
-| `/proactive 30s` | Enable — trigger every 30 seconds |
-| `/proactive 1h` | Enable — trigger every hour |
-| `/proactive off` | Disable sentinel polling |
-
-Duration suffix: `s` = seconds, `m` = minutes, `h` = hours. Plain integer = seconds.
-
-### How it works
-
-- A background daemon thread starts when the REPL launches (paused by default).
-- The daemon checks elapsed time since the last user or agent interaction every second.
-- When the inactivity threshold is reached, it calls the agent with a wake-up prompt.
-- The `threading.Lock` used by the main agent loop ensures wake-ups never interrupt an active session — they queue and fire after the current turn completes.
-- Watcher exceptions are logged via `traceback` so failures are visible and debuggable.
-
-### Complements SleepTimer
-
-| | `SleepTimer` | `/proactive` |
-|---|---|---|
-| Who initiates | The agent | The user |
-| Trigger | After a fixed delay from now | After N seconds of inactivity |
-| Use case | "Check back in 10 minutes" | "Keep watching until I stop typing" |
-
----
-
-## Checkpoint System
-
-CheetahClaws automatically snapshots your conversation and any edited files after every turn, so you can always rewind to an earlier state.
-
-### How it works
-
-- **Auto-snapshot** — after each turn, the checkpoint system saves the current conversation messages, token counts, and a copy-on-write backup of every file that was written or edited that turn.
-- **100-snapshot sliding window** — older snapshots are automatically evicted when the limit is reached.
-- **Throttling** — if nothing changed (no new messages, no file edits) since the last snapshot, the snapshot is skipped.
-- **Initial snapshot** — captured at session start, so you can always rewind to a clean slate.
-- **Storage** — `~/.nano_claude/checkpoints/<session_id>/` (snapshots metadata + backup files).
-
-### Commands
-
-| Command | Description |
-|---|---|
-| `/checkpoint` | List all snapshots for the current session |
-| `/checkpoint <id>` | Rewind: restore files to their state at snapshot `<id>` and trim conversation to that point |
-| `/checkpoint clear` | Delete all snapshots for the current session |
-| `/rewind` | Alias for `/checkpoint` |
-
-### Example
-
-```
-[myproject] ❯ /checkpoint
-  Checkpoints (4 total):
-  #1  [turn 0] 14:02:11  "(initial state)"           0 files
-  #2  [turn 1] 14:03:45  "Create app.py"              1 file
-  #3  [turn 2] 14:05:12  "Add error handling"         1 file
-  #4  [turn 3] 14:06:30  "Explain the code"           1 file
-
-[myproject] ❯ /checkpoint 2
-  Rewound to checkpoint #2 (turn 1)
-  Restored: app.py
-  Conversation trimmed to 2 messages.
-```
-
----
-
-## Plan Mode
-
-Plan mode is a structured workflow for tackling complex, multi-file tasks: Claude first analyses the codebase in a read-only phase and writes an explicit plan, then the user approves before implementation begins.
-
-### How it works
-
-In plan mode:
-- **Only reads** are permitted (`Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, safe `Bash` commands).
-- **Writes are blocked** everywhere **except** the dedicated plan file (`.nano_claude/plans/<session_id>.md`).
-- Blocked write attempts produce a helpful message rather than prompting the user.
-- The system prompt is augmented with plan mode instructions.
-- After compaction, the plan file context is automatically restored.
-
-### Slash command workflow
-
-```
-[myproject] ❯ /plan add WebSocket support
-  Plan mode activated.
-  Plan file: .nano_claude/plans/a3f9c1b2.md
-  Reads allowed. All other writes blocked (except plan file).
-
-[myproject] ❯ <describe your task>
-  [Claude reads files, builds understanding, writes plan to plan file]
-
-[myproject] ❯ /plan
-  # Plan: Add WebSocket support
-
-  ## Phase 1: Create ws_handler.py
-  ## Phase 2: Modify server.py to mount the handler
-  ## Phase 3: Add tests
-
-[myproject] ❯ /plan done
-  Plan mode exited. Permission mode restored to: auto
-  Review the plan above and start implementing when ready.
-
-[myproject] ❯ /plan status
-  Plan mode: INACTIVE  (permission mode: auto)
-```
-
-### Agent tool workflow (autonomous)
-
-Claude can autonomously enter and exit plan mode using the `EnterPlanMode` and `ExitPlanMode` tools — both are auto-approved in all permission modes:
-
-```
-User: Refactor the authentication module
-
-Claude: [calls EnterPlanMode(task_description="Refactor auth module")]
-  → reads auth.py, users.py, tests/test_auth.py ...
-  → writes plan to .nano_claude/plans/...
-  [calls ExitPlanMode()]
-  → "Here is my plan. Please review and approve before I begin."
-
-User: Looks good, go ahead.
-Claude: [implements the plan]
-```
-
-### Commands
-
-| Command | Description |
-|---|---|
-| `/plan <description>` | Enter plan mode with a task description |
-| `/plan` | Print the current plan file contents |
-| `/plan done` | Exit plan mode, restore previous permissions |
-| `/plan status` | Show whether plan mode is active |
-
----
-
-## Context Compression
-
-Long conversations are automatically compressed to stay within the model's context window.
-
-**Two layers:**
-
-1. **Snip** — Old tool outputs (file reads, bash results) are truncated after a few turns. Fast, no API cost.
-2. **Auto-compact** — When token usage exceeds 70% of the context limit, older messages are summarized by the model into a concise recap.
-
-This happens transparently. You don't need to do anything.
-
-**Manual compaction** — You can also trigger compaction at any time with `/compact`. An optional focus string tells the summarizer what context to prioritize:
-
-```
-[myproject] ❯ /compact
-  Compacted: ~12400 → ~3200 tokens (~9200 saved)
-
-[myproject] ❯ /compact keep the WebSocket implementation details
-  Compacted: ~11800 → ~3100 tokens (~8700 saved)
-```
-
-If plan mode is active, the plan file context is automatically restored after any compaction.
-
----
-
-## Diff View
-
-When the model edits or overwrites a file, you see a git-style diff:
-
-```diff
-  Changes applied to config.py:
-
---- a/config.py
-+++ b/config.py
-@@ -12,7 +12,7 @@
-     "model": "claude-opus-4-6",
--    "max_tokens": 8192,
-+    "max_tokens": 16384,
-     "permission_mode": "auto",
-```
-
-Green lines = added, red lines = removed. New file creations show a summary instead.
-
----
-
-## CLAUDE.md Support
-
-Place a `CLAUDE.md` file in your project to give the model persistent context about your codebase. CheetahClaws automatically finds and injects it into the system prompt.
-
-```
-~/.claude/CLAUDE.md          # Global — applies to all projects
-/your/project/CLAUDE.md      # Project-level — found by walking up from cwd
-```
-
-**Example `CLAUDE.md`:**
-
-```markdown
-# Project: FastAPI Backend
-
-## Stack
-- Python 3.12, FastAPI, PostgreSQL, SQLAlchemy 2.0, Alembic
-- Tests: pytest, coverage target 90%
-
-## Conventions
-- Format with black, lint with ruff
-- Full type annotations required
-- New endpoints must have corresponding tests
-
-## Important Notes
-- Never hard-code credentials — use environment variables
-- Do not modify existing Alembic migration files
-- The `staging` branch deploys automatically to staging on push
-```
-
----
-
-## Session Management
-
-### Storage layout
-
-Every exit automatically saves to three places:
-
-```
-~/.cheetahclaws/sessions/
-├── history.json                          ← master: all sessions ever (capped)
-├── mr_sessions/
-│   └── session_latest.json              ← always the most recent (/resume)
-└── daily/
-    ├── 2026-04-05/
-    │   ├── session_110523_a3f9.json     ← per-day files, newest kept
-    │   └── session_143022_b7c1.json
-    └── 2026-04-04/
-        └── session_183100_3b4c.json
-```
-
-Each session file includes metadata:
-
-```json
-{
-  "session_id": "a3f9c1b2",
-  "saved_at": "2026-04-05 11:05:23",
-  "turn_count": 8,
-  "messages": [...]
-}
-```
-
-### Autosave on exit
-
-Every time you exit — via `/exit`, `/quit`, `Ctrl+C`, or `Ctrl+D` — the session is saved automatically:
-
-```
-✓ Session saved → /home/.../.cheetahclaws/sessions/mr_sessions/session_latest.json
-✓              → /home/.../.cheetahclaws/sessions/daily/2026-04-05/session_110523_a3f9.json  (id: a3f9c1b2)
-✓   history.json: 12 sessions / 87 total turns
-```
-
-### Quick resume
-
-To continue where you left off:
-
-```bash
-cheetahclaws
-[myproject] ❯ /resume
-✓  Session loaded from …/mr_sessions/session_latest.json (42 messages)
-```
-
-Resume a specific file:
-
-```bash
-/resume session_latest.json          # loads from mr_sessions/
-/resume /absolute/path/to/file.json  # loads from absolute path
-```
-
-### Manual save / load
-
-```bash
-/save                          # save with auto-name (session_TIMESTAMP_ID.json)
-/save debug_auth_bug           # named save to ~/.cheetahclaws/sessions/
-
-/load                          # interactive list grouped by date
-/load debug_auth_bug           # load by filename
-```
-
-**`/load` interactive list:**
-
-```
-  ── 2026-04-05 ──
-  [ 1] 11:05:23  id:a3f9c1b2  turns:8   session_110523_a3f9.json
-  [ 2] 09:22:01  id:7e2d4f91  turns:3   session_092201_7e2d.json
-
-  ── 2026-04-04 ──
-  [ 3] 22:18:00  id:3b4c5d6e  turns:15  session_221800_3b4c.json
-
-  ── Complete History ──
-  [ H] Load ALL history  (3 sessions / 26 total turns)  /home/.../.cheetahclaws/sessions/history.json
-
-  Enter number(s) (e.g. 1 or 1,2,3), H for full history, or Enter to cancel >
-```
-
-- Enter a single number to load one session
-- Enter comma-separated numbers (e.g. `1,3`) to merge multiple sessions in order
-- Enter `H` to load the entire history — shows message count and token estimate before confirming
-
-### Configurable limits
-
-| Config key | Default | Description |
-|---|---|---|
-| `session_daily_limit` | `5` | Max session files kept per day in `daily/` |
-| `session_history_limit` | `100` | Max sessions kept in `history.json` |
-
-```bash
-/config session_daily_limit=10
-/config session_history_limit=200
-```
-
-### history.json — full conversation history
-
-`history.json` accumulates every session in one place, making it possible to search your complete conversation history or analyze usage patterns:
-
-```json
-{
-  "total_turns": 150,
-  "sessions": [
-    {"session_id": "a3f9c1b2", "saved_at": "2026-04-05 11:05:23", "turn_count": 8, "messages": [...]},
-    {"session_id": "7e2d4f91", "saved_at": "2026-04-05 09:22:01", "turn_count": 3, "messages": [...]}
-  ]
-}
-```
-
----
-
-## Cloud Sync (GitHub Gist)
-
-CheetahClaws v3.05.3 adds optional cloud backup of conversation sessions via **GitHub Gist**. Sessions are stored as private Gists (JSON), browsable in the GitHub UI. No extra dependencies — uses Python's stdlib `urllib`.
-
-### Setup (one-time)
-
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens) → **Generate new token (classic)**
-2. Enable the **`gist`** scope
-3. Copy the token and run:
-
-```
-[myproject] ❯ /cloudsave setup ghp_xxxxxxxxxxxxxxxxxxxx
-✓ GitHub token saved (logged in as: Chauncygu). Cloud sync is ready.
-```
-
-### Upload a session
-
-```
-[myproject] ❯ /cloudsave
-Uploading session to GitHub Gist…
-✓ Session uploaded → https://gist.github.com/abc123def456
-```
-
-Add an optional description:
-
-```
-[myproject] ❯ /cloudsave push auth refactor debug session
-```
-
-### Auto-sync on exit
-
-```
-[myproject] ❯ /cloudsave auto on
-✓ Auto cloud-sync ON — session will be uploaded to Gist on /exit.
-```
-
-From that point on, every `/exit` or `/quit` automatically uploads the session before closing.
-
-### Browse and restore
-
-```
-[myproject] ❯ /cloudsave list
-  Found 3 session(s):
-  abc123de…  2026-04-05 11:02  auth refactor debug session
-  7f9e12ab…  2026-04-04 22:18  proactive monitoring test
-  3b4c5d6e…  2026-04-04 18:31
-
-[myproject] ❯ /cloudsave load abc123de...full-gist-id...
-✓ Session loaded from Gist (42 messages).
-```
-
-### Commands reference
-
-| Command | Description |
-|---|---|
-| `/cloudsave setup <token>` | Save GitHub token (needs `gist` scope) |
-| `/cloudsave` | Upload current session to a new or existing Gist |
-| `/cloudsave push [desc]` | Upload with optional description |
-| `/cloudsave auto on\|off` | Toggle auto-upload on exit |
-| `/cloudsave list` | List all cheetahclaws Gists |
-| `/cloudsave load <gist_id>` | Download and restore a session |
-
----
-
-## Project Structure
-
-```
-cheetahclaws/
-├── cheetahclaws.py        # Entry point: REPL + slash commands + diff rendering + Rich Live streaming + proactive sentinel daemon + SSJ mode + Telegram bridge + Worker command
-├── agent.py              # Agent loop: streaming, tool dispatch, compaction
-├── providers.py          # Multi-provider: Anthropic, OpenAI-compat streaming
-├── tools.py              # Core tools (Read/Write/Edit/Bash/Glob/Grep/Web/NotebookEdit/GetDiagnostics) + registry wiring
-├── tool_registry.py      # Tool plugin registry: register, lookup, execute
-├── compaction.py         # Context compression: snip + auto-summarize
-├── context.py            # System prompt builder: CLAUDE.md + git + memory
-├── config.py             # Config load/save/defaults; DAILY_DIR, SESSION_HIST_FILE paths
-├── cloudsave.py          # GitHub Gist cloud sync (upload/download/list sessions)
-│
-├── multi_agent/          # Multi-agent package
-│   ├── __init__.py       # Re-exports
-│   ├── subagent.py       # AgentDefinition, SubAgentManager, worktree helpers
-│   └── tools.py          # Agent, SendMessage, CheckAgentResult, ListAgentTasks, ListAgentTypes
-├── subagent.py           # Backward-compat shim → multi_agent/
-│
-├── memory/               # Memory package
-│   ├── __init__.py       # Re-exports
-│   ├── types.py          # MEMORY_TYPES and format guidance
-│   ├── store.py          # save/load/delete/search, MEMORY.md index rebuilding
-│   ├── scan.py           # MemoryHeader, age/freshness helpers
-│   ├── context.py        # get_memory_context(), truncation, AI search
-│   └── tools.py          # MemorySave, MemoryDelete, MemorySearch, MemoryList
-├── memory.py             # Backward-compat shim → memory/
-│
-├── skill/                # Skill package
-│   ├── __init__.py       # Re-exports; imports builtin to register built-ins
-│   ├── loader.py         # SkillDef, parse, load_skills, find_skill, substitute_arguments
-│   ├── builtin.py        # Built-in skills: /commit, /review
-│   ├── executor.py       # execute_skill(): inline or forked sub-agent
-│   └── tools.py          # Skill, SkillList
-├── skills.py             # Backward-compat shim → skill/
-│
-├── mcp/                  # MCP (Model Context Protocol) package
-│   ├── __init__.py       # Re-exports
-│   ├── types.py          # MCPServerConfig, MCPTool, MCPServerState, JSON-RPC helpers
-│   ├── client.py         # StdioTransport, HttpTransport, MCPClient, MCPManager
-│   ├── config.py         # Load .mcp.json (project) + ~/.cheetahclaws/mcp.json (user)
-│   └── tools.py          # Auto-discover + register MCP tools into tool_registry
-│
-├── voice/                # Voice input package (v3.05) — backward-compat shim → modular/voice/
-│   └── __init__.py       # Re-exports from modular.voice.*
-│
-├── video/                # Video package — backward-compat shim → modular/video/
-│   └── __init__.py       # Re-exports from modular.video.*
-│
-├── modular/              # Plug-and-play module ecosystem (v3.05.55)
-│   ├── __init__.py       # Auto-discovery registry: load_all_commands(), load_all_tools(), list_modules()
-│   ├── base.py           # HasCommandDefs / HasToolDefs Protocol interface docs
-│   ├── voice/            # Voice submodule (self-contained)
-│   │   ├── __init__.py   # Public API: check_voice_deps, voice_input, list_input_devices
-│   │   ├── cmd.py        # /voice + /tts commands; COMMAND_DEFS plug-in interface
-│   │   ├── recorder.py   # Audio capture: sounddevice → arecord → sox rec
-│   │   ├── stt.py        # STT: faster-whisper → openai-whisper → OpenAI API
-│   │   ├── keyterms.py   # Coding-domain vocab from git branch + project files
-│   │   └── tts_gen.py    # TTS pipeline: style presets, AI text gen, synthesis, run_tts_pipeline()
-│   └── video/            # Video submodule (self-contained)
-│       ├── __init__.py   # Re-exports
-│       ├── cmd.py        # /video command; COMMAND_DEFS plug-in interface
-│       ├── pipeline.py   # Full video assembly: story → TTS → images → subtitles → mp4
-│       ├── story.py      # AI story generation + niche prompts
-│       ├── tts.py        # TTS backends: Gemini → ElevenLabs → Edge; CJK auto-voice; chunking
-│       ├── images.py     # Image backends: Gemini Web → web-search → placeholder
-│       └── subtitles.py  # PIL subtitle renderer + text-to-SRT conversion
-│
-├── checkpoint/           # Checkpoint system (v3.05.6)
-│   ├── __init__.py       # Public API exports
-│   ├── types.py          # FileBackup + Snapshot dataclasses; MAX_SNAPSHOTS = 100
-│   ├── store.py          # File-level backup, snapshot persistence, rewind, cleanup
-│   └── hooks.py          # Write/Edit/NotebookEdit interception — backs up files before modification
-│
-└── tests/                # 263+ unit tests
-    ├── test_mcp.py
-    ├── test_memory.py
-    ├── test_skills.py
-    ├── test_subagent.py
-    ├── test_tool_registry.py
-    ├── test_compaction.py
-    ├── test_diff_view.py
-    ├── test_voice.py         # 29 voice tests (no hardware required)
-    ├── test_checkpoint.py    # 24 checkpoint unit tests
-    ├── e2e_checkpoint.py     # 10-step checkpoint lifecycle test
-    ├── e2e_plan_mode.py      # 10-step plan mode permission test
-    ├── e2e_plan_tools.py     # 8-step EnterPlanMode/ExitPlanMode tool test
-    ├── e2e_compact.py        # 9-step compaction test
-    └── e2e_commands.py       # 9-step /init /export /copy /status test
-```
-
-> **For developers:** Each feature package (`multi_agent/`, `memory/`, `skill/`, `mcp/`, `checkpoint/`) is self-contained. Add custom tools by calling `register_tool(ToolDef(...))` from any module imported by `tools.py`. To add a new plug-and-play module to the ecosystem, create `modular/<name>/cmd.py` exporting `COMMAND_DEFS = {"cmdname": {"func": callable, "help": ..., "aliases": []}}` — it is auto-discovered at startup with no registration step.
+git clone https://github.com/SafeRL-Lab/cheetahclaws.git
+cd cheetahclaws
+pip install -r requirements.txt
+pip install pytest
+python -m pytest tests/ -x -q       # 341+ tests should pass
+python cheetahclaws.py               # run the REPL
+```
+
+Building a plugin? See the [Plugin Authoring Guide](docs/guides/plugin-authoring.md) and the [example plugin template](examples/example-plugin/).
 
 ---
 
@@ -2869,3 +1076,16 @@ Yes. Set the language before recording:
 ```
 
 Whisper supports 99 languages. `auto` detection works well but explicit codes improve accuracy for short utterances.
+
+
+
+## Citation
+If you find the repository useful, please cite the study
+``` Bash
+@article{cheetahclaws2026,
+  title={CheetahClaws: An Extensible, Python-Native Agent System for Autonomous Multi-Model Workflows},
+  author={CheetahClaws Team},
+  journal={github},
+  year={2026}
+}
+```

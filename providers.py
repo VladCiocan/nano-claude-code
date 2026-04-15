@@ -46,7 +46,8 @@ PROVIDERS: dict[str, dict] = {
         "max_completion_tokens": 16384,  # safe cap across gpt-4o/gpt-4.1 family
         "models": [
             "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4.1", "gpt-4.1-mini",
-            "o3-mini", "o1", "o1-mini",
+            "gpt-5", "gpt-5-nano", "gpt-5-mini",
+            "o4-mini", "o3", "o3-mini", "o1", "o1-mini",
         ],
     },
     "gemini": {
@@ -200,6 +201,104 @@ def detect_provider(model: str) -> str:
 def bare_model(model: str) -> str:
     """Strip 'provider/' prefix if present."""
     return model.split("/", 1)[1] if "/" in model else model
+
+
+# ── Auto max_tokens cap ────────────────────────────────────────────────────
+
+# Per-model output limits for well-known models (output tokens, not context)
+_MODEL_OUTPUT_LIMITS: dict[str, int] = {
+    # Anthropic
+    "claude-opus-4-6":            16000,
+    "claude-sonnet-4-6":          16000,
+    "claude-haiku-4-5-20251001":  8192,
+    "claude-opus-4-5":            16000,
+    "claude-sonnet-4-5":          16000,
+    "claude-3-5-sonnet-20241022": 8192,
+    "claude-3-5-haiku-20241022":  8192,
+    # OpenAI
+    "gpt-4o":      16384,
+    "gpt-4o-mini": 16384,
+    "gpt-4.1":     32768,
+    "gpt-4.1-mini":32768,
+    "gpt-5":       32768,
+    "o1":          32768,
+    "o3":          100000,
+    "o4-mini":     100000,
+    # Gemini
+    "gemini-2.5-pro-preview-03-25": 65536,
+    "gemini-2.0-flash":             8192,
+    "gemini-1.5-pro":               8192,
+    # DeepSeek
+    "deepseek-chat":     8192,
+    "deepseek-reasoner": 32768,
+}
+
+# Cache: base_url → {model_id → max_model_len}
+_custom_ctx_cache: dict[str, dict[str, int]] = {}
+
+
+def _fetch_custom_model_limit(base_url: str, model: str, api_key: str) -> int | None:
+    """Query /v1/models on a custom (vLLM/etc.) endpoint for max_model_len.
+    Returns None on any failure. Results are cached per base_url."""
+    cache = _custom_ctx_cache.setdefault(base_url, {})
+    if model in cache:
+        return cache[model]
+    try:
+        url = base_url.rstrip("/") + "/models"
+        req = urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {api_key or 'dummy'}"}
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+        for entry in data.get("data", []):
+            mid = entry.get("id", "")
+            limit = entry.get("max_model_len") or entry.get("context_window")
+            if limit:
+                cache[mid] = int(limit)
+        return cache.get(model)
+    except Exception:
+        return None
+
+
+def resolve_max_tokens(config: dict, provider: str, model: str,
+                       base_url: str = "", api_key: str = "") -> int | None:
+    """Return the effective max_tokens to use, auto-capping to the model's limit.
+
+    Priority:
+      1. Per-model hard limit from _MODEL_OUTPUT_LIMITS (known models)
+      2. For 'custom' provider: query /v1/models for max_model_len
+      3. Provider-level context_limit from PROVIDERS registry
+      4. User's configured value unchanged (no cap available)
+
+    Always respects the user's configured value as an upper bound — never
+    increases it beyond what was requested.
+    """
+    requested = config.get("max_tokens")
+    if not requested:
+        return None  # let the caller use its own default
+
+    # 1. Known per-model limit
+    bare = bare_model(model)
+    known = _MODEL_OUTPUT_LIMITS.get(bare)
+    if known:
+        return min(requested, known)
+
+    # 2. Custom endpoint: query /v1/models
+    if provider == "custom" and base_url:
+        ctx_limit = _fetch_custom_model_limit(base_url, model, api_key)
+        if ctx_limit:
+            # Reserve 256 tokens so max_tokens never equals max_model_len exactly
+            # (vLLM rejects max_tokens == max_model_len in some versions)
+            safe = max(256, ctx_limit - 256)
+            return min(requested, safe)
+
+    # 3. Provider-level context limit (conservative: cap output to 1/2 context)
+    prov_ctx = PROVIDERS.get(provider, {}).get("context_limit")
+    if prov_ctx:
+        cap = prov_ctx // 2
+        return min(requested, cap)
+
+    return requested
 
 
 def get_api_key(provider_name: str, config: dict) -> str:
@@ -387,9 +486,10 @@ def stream_anthropic(
     import anthropic as _ant
     client = _ant.Anthropic(api_key=api_key)
 
+    _mt = resolve_max_tokens(config, "anthropic", model) or 8192
     kwargs = {
         "model":      model,
-        "max_tokens": config.get("max_tokens", 8192),
+        "max_tokens": _mt,
         "system":     system,
         "messages":   messages_to_anthropic(messages),
         "tools":      tool_schemas,
@@ -465,10 +565,21 @@ def stream_openai_compat(
         # "auto" requires vLLM --enable-auto-tool-choice; omit if server doesn't support it
         if not config.get("disable_tool_choice"):
             kwargs["tool_choice"] = "auto"
-    if config.get("max_tokens"):
-        prov_cap = PROVIDERS.get(detect_provider(model), {}).get("max_completion_tokens")
-        mt = config["max_tokens"]
-        kwargs["max_tokens"] = min(mt, prov_cap) if prov_cap else mt
+    _prov = detect_provider(model)
+    _effective_mt = resolve_max_tokens(config, _prov, model, base_url, api_key)
+    if _effective_mt:
+        # Further cap by provider-level max_completion_tokens if present
+        prov_cap = PROVIDERS.get(_prov, {}).get("max_completion_tokens")
+        val = min(_effective_mt, prov_cap) if prov_cap else _effective_mt
+        # Newer OpenAI models (o1/o3/o4/gpt-5 family) dropped max_tokens in favour of
+        # max_completion_tokens.  Use max_completion_tokens for the openai provider so
+        # all current and future OpenAI models work without per-model special-casing.
+        # All other OpenAI-compatible providers (Ollama, vLLM, Gemini, etc.) still
+        # accept max_tokens, so we keep the old key for them.
+        if _prov == "openai":
+            kwargs["max_completion_tokens"] = val
+        else:
+            kwargs["max_tokens"] = val
 
     text          = ""
     tool_buf: dict = {}   # index → {id, name, args_str}
@@ -548,8 +659,9 @@ def stream_ollama(
                 if isinstance(fn.get("arguments"), str):
                     try:
                         fn["arguments"] = json.loads(fn["arguments"])
-                    except Exception:
-                        pass
+                    except json.JSONDecodeError:
+                        import sys
+                        print(f"[warn] Failed to parse tool arguments as JSON, leaving as string: {fn['arguments']!r}", file=sys.stderr)
     
     payload = {
         "model": model,
@@ -577,16 +689,26 @@ def stream_ollama(
 
     try:
         resp_cm = urllib.request.urlopen(req)
+    except urllib.error.URLError as e:
+        raise ConnectionError(
+            f"Cannot connect to Ollama at {base_url}. "
+            f"Is it running? Start with: ollama serve\n  ({e})"
+        ) from e
     except urllib.error.HTTPError as e:
         if e.code == 500 and "tools" in payload:
             # Model doesn't support tool calling — retry without tools
             print(
-                f"\n\033[33m[warn] {model} returned HTTP 500 (likely no tool-calling support)."
-                " Retrying without tools.\033[0m"
+                f"\n\033[33m[warn] {model} does not support tool calling."
+                " Retrying in chat-only mode (no file editing, search, etc.).\033[0m"
             )
             payload.pop("tools", None)
             req = _make_request(payload)
             resp_cm = urllib.request.urlopen(req)
+        elif e.code == 404:
+            raise ValueError(
+                f"Ollama model '{model}' not found. Pull it with: ollama pull {model}\n"
+                f"  Or pick from local models: /model ollama"
+            ) from e
         else:
             raise
 
@@ -595,7 +717,7 @@ def stream_ollama(
             if not line.strip(): continue
             try:
                 data = json.loads(line)
-            except Exception:
+            except json.JSONDecodeError:
                 continue
             
             msg = data.get("message", {})
@@ -640,17 +762,42 @@ def stream(
     Unified streaming entry point.
     Auto-detects provider from model string.
     Yields: TextChunk | ThinkingChunk | AssistantTurn
+
+    Wraps every provider with:
+      - Circuit breaker: fails fast when a provider has repeated errors.
+      - Structured logging: logs api_call_start / api_call_done / api_call_error.
     """
+    import logging_utils as _log
+    import circuit_breaker as _cb
+
     provider_name = detect_provider(model)
     model_name    = bare_model(model)
     prov          = PROVIDERS.get(provider_name, PROVIDERS["openai"])
     api_key       = get_api_key(provider_name, config)
+    session_id    = config.get("_session_id", "default")
 
+    # ── Circuit breaker gate ───────────────────────────────────────────────
+    breaker = _cb.get_breaker(provider_name, config)
+    if not breaker.allow_request():
+        raise _cb.CircuitOpenError(
+            f"Circuit breaker OPEN for provider '{provider_name}'. "
+            f"Cooldown: {breaker.cooldown:.0f}s. Use /circuit reset {provider_name} to force-close."
+        )
+
+    _log.debug("api_call_start", session_id=session_id,
+               provider=provider_name, model=model_name)
+
+    # ── Build inner generator ──────────────────────────────────────────────
     if prov["type"] == "anthropic":
-        yield from stream_anthropic(api_key, model_name, system, messages, tool_schemas, config)
+        inner = stream_anthropic(api_key, model_name, system, messages, tool_schemas, config)
     elif prov["type"] == "ollama":
-        base_url = prov.get("base_url", "http://localhost:11434")
-        yield from stream_ollama(base_url, model_name, system, messages, tool_schemas, config)
+        import os as _os
+        base_url = (
+            _os.environ.get("OLLAMA_BASE_URL")
+            or config.get("ollama_base_url")
+            or prov.get("base_url", "http://localhost:11434")
+        )
+        inner = stream_ollama(base_url, model_name, system, messages, tool_schemas, config)
     else:
         import os as _os
         if provider_name == "custom":
@@ -663,9 +810,25 @@ def stream(
                 )
         else:
             base_url = prov.get("base_url", "https://api.openai.com/v1")
-        yield from stream_openai_compat(
+        inner = stream_openai_compat(
             api_key, base_url, model_name, system, messages, tool_schemas, config
         )
+
+    # ── Yield with failure tracking ────────────────────────────────────────
+    try:
+        for event in inner:
+            if isinstance(event, AssistantTurn):
+                breaker.record_success()
+                _log.info("api_call_done", session_id=session_id,
+                          provider=provider_name, model=model_name,
+                          in_tokens=event.in_tokens, out_tokens=event.out_tokens)
+            yield event
+    except Exception as exc:
+        breaker.record_failure()
+        _log.error("api_call_error", session_id=session_id,
+                   provider=provider_name, model=model_name,
+                   error_type=type(exc).__name__, error=str(exc)[:200])
+        raise
 
 
 def list_ollama_models(base_url: str) -> list[str]:
@@ -676,5 +839,5 @@ def list_ollama_models(base_url: str) -> list[str]:
             data = json.loads(resp.read().decode("utf-8"))
             # Ollama returns {"models": [{"name": "llama3:latest", ...}, ...]}
             return [m["name"] for m in data.get("models", [])]
-    except Exception:
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
         return []
