@@ -51,6 +51,17 @@ Other install methods: [pip install](#alternative-install-with-pip) | [uv instal
 ---
 
   <div align=center>
+ <img src="https://github.com/SafeRL-Lab/cheetahclaws/blob/main/docs/web_demo.gif" width="850"/> 
+ </div>
+<div align=center>
+<center style="color:#000000;text-decoration:underline">Web UI: Browser Chat — Sidebar, Tool Cards, Approval Prompts, Markdown Streaming</center>
+ </div>
+
+
+
+---
+
+  <div align=center>
  <img src="https://github.com/SafeRL-Lab/clawspring/blob/main/docs/brainstorm_demo.gif" width="850"/> 
  </div>
 <div align=center>
@@ -74,7 +85,7 @@ Other install methods: [pip install](#alternative-install-with-pip) | [uv instal
  <img src="https://github.com/SafeRL-Lab/clawspring/blob/main/docs/ssj_demo.gif" width="850"/> 
  </div>
 <div align=center>
-<center style="color:#000000;text-decoration:underline">SSJ Developer Mode: Power Menu Workflow</center>
+<center style="color:#000000;text-decoration:underline">SSJ Mode (Simple and Smart Job Mode): Power Menu Workflow</center>
  </div>
 
 ---
@@ -106,52 +117,23 @@ Other install methods: [pip install](#alternative-install-with-pip) | [uv instal
 
 ---
 
+ <div align=center>
+ <img src="https://github.com/SafeRL-Lab/cheetahclaws/blob/main/docs/trading_demo.gif" width="850"/> 
+ </div>
+<div align=center>
+<center style="color:#000000;text-decoration:underline">Autonomous Trading Agent</center>
+ </div>
+
+---
+
+
 
  
 ## 🔥🔥🔥 News (Pacific Time)
 
  
-- Apr 15, 2026 (**v3.05.72**): **Error classifier, parallel tools, prompt injection detection, SQLite sessions, tool cache, auxiliary model, safe stdio**
-  - **Error classifier** (`error_classifier.py`) — centralized API error taxonomy (auth, billing, rate_limit, context_overflow, model_not_found, overloaded, connection, timeout) with per-category recovery hints, retryability, and backoff multipliers. Replaces fragile string matching in `agent.py` and `cheetahclaws.py`.
-  - **Parallel tool execution** (`agent.py`) — when the LLM returns multiple tool calls, `concurrent_safe=True` tools (Read, Glob, Grep, WebSearch, etc.) now run in parallel via ThreadPoolExecutor (up to 8 workers). Write tools remain sequential. Permission checks are still serial.
-  - **Prompt injection detection** (`context.py`) — CLAUDE.md files are scanned for 8 threat patterns (e.g., "ignore previous instructions", "system prompt override", credential exfiltration via curl/echo) before injection into the system prompt. Detected files are excluded with a security warning.
-  - **SQLite session store + full-text search** (`session_store.py`) — sessions are now saved to SQLite (WAL mode) alongside JSON files. FTS5 index enables `/search <query>` to find past conversations by content. Auto-imports legacy `history.json` on first search.
-  - **Tool result cache** (`tool_registry.py`) — read-only tools cache results by `sha256(name + params)`, LRU eviction at 64 entries. Write tools (Write, Edit, Bash, NotebookEdit) invalidate the cache automatically. Eliminates redundant file reads in agent loops.
-  - **Auxiliary model routing** (`auxiliary.py`) — side tasks (context compression, summarization) now route to a fast/cheap model (Gemini Flash, GPT-4o-mini, etc.) instead of the primary model. Auto-detects from available API keys. Configurable via `auxiliary_model` in config.
-  - **Auto-discovery tool loading** (`tools/__init__.py`) — extension modules loaded via `_EXTENSION_MODULES` list + `__import__()` loop instead of manual import statements. Adding a new extension is one line.
-  - **Safe stdio wrapper** (`cheetahclaws.py`) — `sys.stdout`/`sys.stderr` wrapped with `_SafeWriter` that silently handles `BrokenPipeError` and closed file descriptors. Prevents crashes when terminal disconnects during bridge/daemon operation.
-  - **One-line installer** (`scripts/install.sh`) — `curl -fsSL .../install.sh | bash` handles platform detection (Linux/macOS/WSL2/Termux), Python/git/pip checks, clone, install, and PATH setup. First run triggers the setup wizard automatically.
-  - **Contributing section** in README with quick-start commands for contributors, linking to CONTRIBUTING.md and Plugin Authoring Guide.
-  - **Browser tool** (`tools/browser.py`) — `WebBrowse` renders JavaScript pages with headless Chromium (via playwright). Supports extract, screenshot, and click actions with CSS selectors. Solves dynamic/SPA pages that `WebFetch` can't handle. Optional: `pip install cheetahclaws[browser]`.
-  - **Email tools** (`tools/email.py`) — `ReadEmail` (IMAP) reads inbox with search by sender/subject; `SendEmail` (SMTP) sends emails with threading support. Zero external deps (Python stdlib). Configure with `/config email_address=...`.
-  - **File tools** (`tools/files.py`) — `ReadPDF` extracts text from PDFs (pymupdf); `ReadImage` does OCR on images (pytesseract, 99 languages); `ReadSpreadsheet` reads Excel/CSV/TSV with formatted table output. Optional: `pip install cheetahclaws[files]`.
-  - **`[all]` extra** — `pip install cheetahclaws[all]` installs every optional dependency (voice, vision, autosuggest, browser, files, OCR).
-  - **Version bumped to 3.05.72.**
-
-- Apr 15, 2026 (**v3.05.71**): **Plugin docs, example template, config namespace fix, typing-time autosuggest**
-  - **Plugin authoring guide** (`docs/guides/plugin-authoring.md`) — full guide for building third-party plugins: tools (`TOOL_DEFS`), commands (`COMMAND_DEFS`), skills, MCP servers, manifest format, testing, publishing checklist, and common mistakes.
-  - **Example plugin template** (`examples/example-plugin/`) — copy-and-edit starter with working tools (`ExampleSearch`, `ExampleStatus`), command (`/example` with subcommands), skill, and `plugin.json` manifest.
-  - **Fix `config` namespace collision** — renamed `config.py` to `cc_config.py` to avoid conflict with system `config` namespace packages. `pip install -e .` followed by `cheetahclaws` from outside the project directory no longer crashes with `ImportError`.
-  - **Typing-time autosuggest** (PR #38 by @honghua) — optional `prompt_toolkit` integration for inline ghost suggestions and keyboard-selectable completion menu while typing slash commands. Install with `pip install cheetahclaws[autosuggest]`. Falls back to readline when not installed. Env var `CHEETAH_PT_INPUT=0` to opt out.
-  - **Python 3.10-3.13 compat fix** (PR #38) — `Path.read_text(newline=)` in `tools/fs.py` replaced with portable `open()` helper (the `newline=` kwarg is 3.14+ only).
-  - **Version bumped to 3.05.71.**
-
-- Apr 14, 2026 (**v3.05.70**): **Setup wizard, Ollama UX, context indicator, and session robustness**
-  - **Interactive setup wizard** (`commands/core.py`, `cheetahclaws.py`) — `cheetahclaws --setup` or `/setup` launches a guided setup: pick from 6 providers (Ollama, Anthropic, OpenAI, Gemini, DeepSeek, custom), auto-detect env vars, set API key, verify connection. Auto-triggers on first run (no `config.json`). API key missing warning now suggests `--setup`.
-  - **Ollama UX improvements** — `/model` now shows live local Ollama models (via `/api/tags`) instead of a hardcoded list. `/model ollama` triggers the interactive model picker. Connection failures and 404 errors now give actionable messages ("Is Ollama running?", "Pull it with: ollama pull ..."). Tool-calling fallback message clarified.
-  - **Context usage in prompt** — the REPL prompt now shows context window usage as a percentage: dim when <40%, yellow at 40-70%, red at >=70%. Users can see when compaction is approaching without running `/context`.
-  - **Session save/resume robustness** — atomic writes (write-to-temp + rename) prevent corruption on crash. `/load` and `/resume` now catch corrupted JSON with friendly error messages and suggest daily backups. History file corruption no longer blocks auto-save.
-  - **Version from pyproject.toml** — `VERSION` is now read dynamically from `pyproject.toml` (single source of truth), no more hardcoded version drift. Falls back to `importlib.metadata` when installed as a package.
-  - **`/doctor` enhanced** — added internet connectivity check and `pyte` dependency check; optional vs required deps now distinguished (`[FAIL]` for missing required deps).
-  - **Fix `mcp` namespace collision** — renamed internal `mcp/` package to `cc_mcp/` to avoid conflict with the official `mcp` pip package (Anthropic MCP SDK). Previously, `pip install .` followed by `cheetahclaws` crashed with `ImportError: cannot import name 'MCPClient'`.
-  - **Version bumped to 3.05.70.**
-
-- Apr 14, 2026 (**v3.05.69**): **Actionable error messages, dependency sync, and contributor guide**
-  - **Actionable API error messages** (`cheetahclaws.py`) — the REPL error handler now detects 6 common failure modes (invalid API key, network timeout, Ollama not running, rate limit, model not found, insufficient credits) and prints a specific hint alongside the error instead of a generic message. The proactive watcher background thread no longer dumps raw Python tracebacks to stdout — errors are routed through `logging_utils` instead.
-  - **Dependency sync** (`pyproject.toml`, `requirements.txt`) — `pyte>=0.8.0` added to `pyproject.toml` core dependencies (was only in `requirements.txt`, causing import failures after `pip install .`). `requirements.txt` rewritten to mirror `pyproject.toml` as single source of truth, with optional deps (`sounddevice`, `Pillow`) clearly marked.
-  - **`CONTRIBUTING.md`** — new contributor guide covering project structure, architecture (config vs RuntimeContext, tool/plugin/hooks systems), development conventions, and a PR checklist. Addresses recurring PR issues where contributors misunderstood the plugin loader (`TOOL_DEFS` vs `register_tool()`), hooks system (no event-based hooks), and runtime state management.
-  - **Version bumped to 3.05.69.**
-
+- Apr 16, 2026 (**v3.05.74**): **Web UI production hardening — persistence, multi-user auth, ops endpoints, JS module split, pytest suite**
+  
 
 
 
@@ -182,6 +164,8 @@ CheetahClaws: **A Lightweight** and **Easy-to-Use** Python Reimplementation of C
   * [Usage: Closed-Source API Models](#usage-closed-source-api-models)
   * [Usage: Open-Source Models (Local)](#usage-open-source-models-local)
   * [Model Name Format](#model-name-format)
+  * [Trading Agent](#trading-agent) (multi-agent analysis, backtesting, memory)
+  * [Web UI](#web-ui) (chat interface, settings, API endpoints)
   * [Documentation](#documentation) (guides for all features)
   * [Contributing](#contributing)
   * [FAQ](#faq)
@@ -194,7 +178,7 @@ CheetahClaws: **A Lightweight** and **Easy-to-Use** Python Reimplementation of C
 
 Claude Code is a powerful, production-grade AI coding assistant — but its source code is a compiled, 12 MB TypeScript/Node.js bundle (~1,300 files, ~283K lines). It is tightly coupled to the Anthropic API, hard to modify, and impossible to run against a local or alternative model.
 
-**CheetahClaws** reimplements the same core loop in ~10K lines of readable Python, keeping everything you need and dropping what you don't. See here for more detailed analysis (CheetahClaws v3.03), [English version](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/comparison_claude_code_vs_nano_v3.03_en.md) and [Chinese version](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/comparison_claude_code_vs_nano_v3.03_cn.md)
+**CheetahClaws** reimplements the same core loop in ~40K lines of readable Python, keeping everything you need and dropping what you don't. See here for more detailed analysis (CheetahClaws v3.03), [English version](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/comparison_claude_code_vs_nano_v3.03_en.md) and [Chinese version](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/comparison_claude_code_vs_nano_v3.03_cn.md)
 
 ### At a glance
 
@@ -243,6 +227,7 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 - **Rich Live streaming rendering** — When `rich` is installed, responses stream as live-updating Markdown in place (no duplicate raw text), with clean tool-call interleaving.
 - **Native Ollama reasoning** — Local reasoning models (deepseek-r1, qwen3, gemma4) stream their `<think>` tokens directly to the terminal via `ThinkingChunk` events; enable with `/verbose` and `/thinking`.
 - **Native Ollama vision** — `/image [prompt]` captures the clipboard and sends it to local vision models (llava, gemma4, llama3.2-vision) via Ollama's native image API. No cloud required.
+- **Built-in Web UI** — `--web` launches a production-ready browser interface: multi-user accounts (bcrypt + JWT), SQLite-backed session history that survives restarts, rich Chat UI at `/chat` with streaming messages, tool cards, permission approval, sidebar session CRUD + search + markdown export, light/dark/system theme, settings panel with per-provider API keys. Full xterm.js PTY terminal at `/` keeps 100% CLI parity. Ops endpoints (`/health`, `/metrics`) + structured JSON logs + 21 pytest end-to-end tests. Nine tiny vanilla-JS modules under `web/static/js/` — no Node.js, no React, no build step. `cheetahclaws --web` auto-picks a free port if 8080 is taken.
 - **Reliable multi-line paste** — Bracketed Paste Mode (`ESC[?2004h`) collects any pasted text — code blocks, multi-paragraph prompts, long diffs — as a single turn with zero latency and no blank-line artifacts.
 - **Rich Tab completion** — Tab after `/` shows all commands with one-line descriptions and subcommand hints; subcommand Tab-complete works for `/mcp`, `/plugin`, `/tasks`, `/cloudsave`, and more.
 - **Checkpoint & rewind** — `/checkpoint` lists all auto-snapshots of conversation + file state; `/checkpoint <id>` rewinds both files and history to any earlier point in the session.
@@ -360,7 +345,8 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | 36 slash commands | `/model` · `/config` · `/save` · `/cost` · `/memory` · `/skills` · `/agents` · `/voice` · `/proactive` · `/checkpoint` · `/plan` · `/compact` · `/status` · `/doctor` · … |
 | Voice input | Record → transcribe → auto-submit. Backends: `sounddevice` / `arecord` / SoX + `faster-whisper` / `openai-whisper` / OpenAI API. Works fully offline. |
 | Brainstorm | `/brainstorm [topic]` generates N expert personas suited to the topic (2–100, default 5, chosen interactively), runs an iterative debate, saves results to `brainstorm_outputs/`, and synthesizes a Master Plan + auto-generates `brainstorm_outputs/todo_list.txt`. |
-| SSJ Developer Mode | `/ssj` opens a persistent interactive power menu with **14 shortcuts**: Brainstorm, TODO viewer, Worker, Expert Debate, Propose, Review, Readme, Commit, Scan, Promote, Video factory, TTS factory, Monitor, Agent. Stays open between actions; `/command` passthrough supported. |
+| SSJ Developer Mode | `/ssj` opens a persistent interactive power menu with **15 shortcuts**: Brainstorm, TODO viewer, Worker, Expert Debate, Propose, Review, Readme, Commit, Scan, Promote, Video factory, TTS factory, Monitor, **Trading**, Agent. Stays open between actions; `/command` passthrough supported. |
+| Trading agent | `/trading analyze <SYMBOL>` runs a full multi-agent pipeline: data collection → Bull/Bear researcher debate → research judge → risk management panel (aggressive/conservative/neutral) → portfolio manager final decision (BUY/OVERWEIGHT/HOLD/UNDERWEIGHT/SELL). `/trading backtest` runs strategy backtests with 4 built-in strategies. BM25 memory system learns from past trades. Supports US/HK/A-share stocks and 20+ cryptos. |
 | Monitor | `/monitor` (no args → wizard) subscribes to AI-monitored topics on a schedule and pushes reports to Telegram/Slack/console. Topics: `ai_research` (arxiv), `stock_<TICKER>`, `crypto_<SYMBOL>`, `world_news` (Reuters/BBC/AP), `custom:<query>`. Schedules: 15m to weekly. Background scheduler daemon with `/monitor start/stop/status`. |
 | Autonomous Agents | `/agent` (no args → wizard) launches autonomous background agent loops driven by Markdown task templates. 4 built-in templates: `research_assistant`, `auto_bug_fixer`, `paper_writer`, `auto_coder`. Iteration summaries pushed via bridge. Custom templates: drop a `.md` file into `~/.cheetahclaws/agent_templates/`. |
 | Remote Control job queue | All three bridges (Telegram/Slack/WeChat) maintain a per-bridge FIFO job queue when the AI is busy. `!jobs` / `!j` — dashboard; `!job <id>` — detail; `!retry <id>` — re-run a failed job; `!cancel [id]` — stop current job. Tool step tracking with `on_tool_start`/`on_tool_end` hooks. Persistent log at `~/.cheetahclaws/jobs.json`. |
@@ -382,6 +368,7 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | Extended Thinking | Toggle on/off for Claude models; native `<think>` block streaming for local Ollama reasoning models (deepseek-r1, qwen3, gemma4) |
 | Cost tracking | Token usage + estimated USD cost |
 | Non-interactive mode | `--print` flag for scripting / CI |
+| **Web UI** | `--web` opens the browser. Multi-user accounts (bcrypt + JWT), SQLite-persisted history, session CRUD + markdown export, light/dark/system theme, `/health` + `/metrics`, auto-picks a free port if 8080 is busy. `pip install 'cheetahclaws[web]'`. |
 
 ---
 
@@ -511,6 +498,7 @@ pip install ".[autosuggest]"        # typing-time slash command autosuggest (pro
 pip install ".[browser]"            # headless browser for JS-rendered pages (playwright)
 pip install ".[files]"              # PDF + Excel reading (pymupdf, openpyxl)
 pip install ".[ocr]"                # image OCR (pytesseract, Pillow)
+pip install ".[trading]"            # trading agent (yfinance, rank-bm25)
 pip install ".[all]"                # everything above
 ```
 
@@ -525,13 +513,15 @@ pip install ".[all]"                # everything above
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Clone and install
+# Clone and install with all optional dependencies (voice, vision, autosuggest, browser, files, OCR, trading etc.)
 git clone https://github.com/SafeRL-Lab/cheetahclaws.git
 cd cheetahclaws
-uv tool install .
+uv tool install ".[all]"
 ```
 
-To update: `uv tool install . --reinstall`
+Prefer a minimal install? Use `uv tool install .` (core only) and add extras later, e.g. `uv tool install ".[voice,vision,autosuggest]" --reinstall`.
+
+To update: `uv tool install ".[all]" --reinstall`
 
 To uninstall: `uv tool uninstall cheetahclaws`
 
@@ -590,9 +580,8 @@ Get your API key at [aistudio.google.com](https://aistudio.google.com).
 ```bash
 export GEMINI_API_KEY=AIza...
 
-cheetahclaws --model gemini/gemini-2.0-flash
-cheetahclaws --model gemini/gemini-1.5-pro
-cheetahclaws --model gemini/gemini-2.5-pro-preview-03-25
+cheetahclaws --model gemini/gemini-3-flash-preview
+cheetahclaws --model gemini/gemini-3.1-pro-preview
 ```
 
 ### Kimi (Moonshot AI)
@@ -846,16 +835,151 @@ cheetahclaws --model qwen:qwen-max
 
 ---
 
+## Trading Agent
+
+CheetahClaws includes a built-in AI-powered trading analysis and backtesting module. Install trading dependencies:
+
+```bash
+pip install "cheetahclaws[trading]"
+```
+
+### Multi-agent analysis
+
+```bash
+/trading analyze NVDA
+```
+
+Runs a 5-phase pipeline: **data collection** (technical indicators, fundamentals, news) → **Bull/Bear researcher debate** → **research judge** recommendation → **risk management panel** (aggressive / conservative / neutral) → **portfolio manager** final decision with a 5-tier rating: `BUY / OVERWEIGHT / HOLD / UNDERWEIGHT / SELL`.
+
+Each agent uses BM25 memory to recall similar past situations and learns from outcomes via post-trade reflection.
+
+### Backtesting
+
+```bash
+/trading backtest AAPL dual_ma           # single strategy
+/trading backtest TSLA                   # AI picks best strategy
+```
+
+4 built-in strategies: `dual_ma` (SMA crossover), `rsi_mean_reversion`, `bollinger_breakout`, `macd_crossover`. Engines for US/HK equities and crypto. Reports Sharpe, Sortino, Calmar, max drawdown, win rate, profit factor.
+
+### SSJ integration
+
+`/ssj` → **14. 📈 Trading** opens a guided sub-menu:
+
+| Option | Action |
+|---|---|
+| a. Quick Analyze | Full multi-agent analysis for any symbol |
+| b. Backtest | Pick strategy or compare all 4 |
+| c. Price Check | Current price + key metrics |
+| d. Indicators | 11 technical indicators report |
+| e. Trading Bot | Autonomous multi-symbol analysis |
+| f. History | Past trading decisions |
+| g. Memory | Trading memory status |
+
+### Supported markets
+
+US stocks (`AAPL`), HK stocks (`0700.HK`), A-shares (`000001.SZ`), crypto (`BTC`, `ETH`, + 18 more). Data sources with automatic fallback chains — no API keys required.
+
+> **Full guide:** [docs/guides/trading.md](docs/guides/trading.md)
+
+---
+
+## Web UI
+
+A production-ready browser interface with real user accounts, SQLite-backed session history, and ops endpoints — bundled Python stdlib HTTP server plus nine small vanilla-JS modules, no Node.js / React / build step.
+
+### Install and start
+
+```bash
+pip install 'cheetahclaws[web]'              # pulls sqlalchemy + passlib + PyJWT
+
+cheetahclaws --web                           # auto-picks a free port (tries 8080 first)
+cheetahclaws --web --port 9000               # bind exactly :9000 (fails loudly if taken)
+cheetahclaws --web --host 0.0.0.0            # open to the local network
+cheetahclaws --web --no-auth                 # skip login (localhost dev only)
+```
+
+On first visit to `http://localhost:<port>/chat`, the UI routes you to a **registration form** — the first account becomes admin. Subsequent visits show **Sign in**. Credentials: bcrypt-hashed password + 7-day JWT cookie (`ccjwt`, HttpOnly, SameSite=Strict). The JWT signing key is persisted to `~/.cheetahclaws/web_secret` so logins survive restarts.
+
+### Chat UI (`/chat`)
+
+| Feature | Details |
+|---------|---------|
+| **Streaming chat** | WebSocket for live prompts + SSE for long-running slash commands |
+| **Persistent history** | Every session + message lives in SQLite (`~/.cheetahclaws/web.db`). Server restart does not lose state. |
+| **Sidebar session management** | Title auto-titled from first user message, relative time ("12m ago"), message count, busy dot, client-side search, right-click menu (Rename / Export Markdown / Delete) |
+| **Cross-user isolation** | Each user only sees their own sessions — enforced at DB query and in-memory cache |
+| **Tool cards** | Collapsible cards show tool name, inputs, outputs, status (running / done / denied) |
+| **Permission approval** | Inline Allow / Deny buttons |
+| **45+ slash commands** | `/status`, `/model`, `/brainstorm`, `/ssj`, `/plan`, `/telegram`, `/wechat`, `/slack`, `/voice`, `/image`, etc. |
+| **Settings panel** | Model picker (11 providers), permission mode, thinking/verbose toggles, per-provider API key entry, quick-action buttons |
+| **Theme** | Light default, `@media (prefers-color-scheme: dark)` follows the OS automatically. Toggle cycles **system → light → dark → system**; choice stored in localStorage, no flash-of-wrong-theme on first paint |
+| **Feature dashboard** | Welcome screen with 4×6 clickable cards — Core, Agent Features, Session & Memory, Multi-Model, Development Tools, Bridges, Multi-Modal Media |
+| **Export as Markdown** | `GET /api/sessions/{id}/export` downloads the conversation with all tool calls |
+| **Favicon** | Leaping-cheetah icon served at `/favicon.ico` and `/static/favicon.png` |
+
+### PTY Terminal (`/`)
+
+Full xterm.js terminal — still there, still 100% CLI parity. Uses the same one-time generated password (printed on startup) — separate from the chat JWT flow.
+
+### API shape
+
+```
+Browser ──→ /chat                ──→ 9 JS modules load from /static/js/*.js
+        ──→ /api/auth/login      ──→ bcrypt + JWT cookie
+        ──→ /api/prompt (POST)   ──→ persists to SQLite, fans events out
+        ──→ /api/events (WS)     ──→ real-time text_chunk / tool_* / permission_*
+        ──→ /api/sessions/*      ──→ list / get / rename / delete / export
+
+        ──→ /                     ──→ xterm.js PTY (password-gated)
+        ──→ /health               ──→ { ok, db, uptime_s }        (unauthenticated)
+        ──→ /metrics              ──→ Prometheus text              (unauthenticated)
+```
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/auth/bootstrap` | GET | Any users registered yet? |
+| `/api/auth/register` | POST | Create user (first one is admin) |
+| `/api/auth/login` | POST | Verify bcrypt + issue JWT cookie |
+| `/api/auth/logout` | POST | Clear cookie |
+| `/api/auth/whoami` | GET | Current user |
+| `/api/prompt` | POST | Submit prompt / slash command (inline JSON or SSE for long commands) |
+| `/api/events` | WS | Structured event stream for a session |
+| `/api/approve` | POST | Respond to a permission request |
+| `/api/sessions` | GET | List this user's sessions |
+| `/api/sessions/{id}` | GET / PATCH / DELETE | Detail / rename / remove |
+| `/api/sessions/{id}/export` | GET | Download conversation as Markdown |
+| `/api/config` | GET / PATCH | Read or update session config |
+| `/api/models` | GET | Providers + models + API-key status |
+| `/health` | GET | Liveness + DB probe |
+| `/metrics` | GET | Prometheus counters (`requests_total`, `auth_logins_failed`, `users_total`, ...) |
+
+### Observability
+
+- **Structured logs** — one JSON line per HTTP response on stderr, e.g.
+  ```json
+  {"ts":1776368300.054,"level":"info","logger":"web.server","msg":"req","method":"POST","path":"/api/prompt","status":200,"dur_ms":650,"user_id":1}
+  ```
+  Tune with `CHEETAHCLAWS_LOG_LEVEL=DEBUG|INFO|WARNING`.
+- **Metrics** — point Prometheus at `/metrics`. Counters increment inside `_send_http` and the auth routes.
+- **Tests** — `pytest tests/test_web_api.py` runs 21 end-to-end HTTP tests against a real server in ~5 seconds (no mocks, real SQLite, real bcrypt, real JWT).
+
+> **Full guide:** [docs/guides/web-ui.md](docs/guides/web-ui.md)
+
+---
+
 ## Documentation
 
 Detailed guides have been moved to [`docs/guides/`](docs/guides/) to keep this README focused. Click any link below:
 
 | Guide | What's Inside |
 |-------|---------------|
+| [**Web UI**](docs/guides/web-ui.md) | Chat UI, PTY terminal, API endpoints, settings panel, model switching, dark/light theme, SSE streaming, session management, authentication |
 | [**Reference**](docs/guides/reference.md) | CLI, 36+ commands, 33 built-in tools (incl. WebBrowse, ReadEmail, SendEmail, ReadPDF, ReadImage, ReadSpreadsheet), session search, auxiliary model, error classification, prompt injection detection, tool cache, parallel tools |
 | [**Extensions**](docs/guides/extensions.md) | Memory system, Skills, Sub-Agents, MCP servers, Plugin system, Monitor subscriptions, Autonomous Agents |
 | [**Bridges**](docs/guides/bridges.md) | Telegram, WeChat, Slack setup and remote control from your phone |
 | [**Voice & Video**](docs/guides/voice-and-video.md) | Voice input (offline Whisper), Video Content Factory, TTS Content Factory |
+| [**Trading**](docs/guides/trading.md) | Multi-agent analysis (Bull/Bear debate, Risk panel, PM), backtesting (4 strategies, equity + crypto engines), BM25 memory, data fallback chains, SSJ integration |
 | [**Advanced**](docs/guides/advanced.md) | Brainstorm, SSJ Developer Mode, Tmux, Proactive monitoring, Checkpoints, Plan mode, Session management, Cloud sync |
 | [**Recipes**](docs/guides/recipes.md) | 12 step-by-step examples: code review, Telegram remote control, autonomous research, bug fix, brainstorm, session search, browse web pages, email, PDF/Excel analysis, and more |
 | [**Plugin Authoring**](docs/guides/plugin-authoring.md) | Build your own plugin: tools, commands, skills, MCP servers, publishing checklist |
@@ -875,6 +999,10 @@ Options:
   --accept-all         Auto-approve all operations (no permission prompts)
   --verbose            Show thinking blocks and per-turn token counts
   --thinking           Enable Extended Thinking (Claude only)
+  --web                Start web server (Chat UI + PTY terminal in browser)
+  --port PORT          Web server port (default: 8080)
+  --host HOST          Web server host (default: 127.0.0.1)
+  --no-auth            Disable web password (local use only)
   --version            Print version and exit
   -h, --help           Show help
 ```
@@ -898,6 +1026,10 @@ cheetahclaws --accept-all --print "Initialize a Python project with pyproject.to
 
 # Debug mode (see tokens + thinking)
 cheetahclaws --thinking --verbose
+
+# Web UI (browser-based chat + terminal)
+cheetahclaws --web
+cheetahclaws --web --port 8008 --no-auth
 ```
 
 See [Reference Guide](docs/guides/reference.md) for the full list of 36+ slash commands, tool descriptions, and configuration options.
@@ -1041,10 +1173,10 @@ Use `uv tool install` — it creates an isolated environment and puts `cheetahcl
 
 ```bash
 cd cheetahclaws
-uv tool install .
+uv tool install ".[all]"
 ```
 
-After that, just run `cheetahclaws` from any directory. To update after pulling changes, run `uv tool install . --reinstall`.
+After that, just run `cheetahclaws` from any directory. To update after pulling changes, run `uv tool install ".[all]" --reinstall`. For a minimal install, use `uv tool install .` and add extras as needed.
 
 **Q: How do I set up voice input?**
 

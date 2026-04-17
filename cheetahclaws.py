@@ -33,6 +33,10 @@ Slash commands in REPL:
   /export [f] Export conversation history to a Markdown file
   /copy       Copy the last assistant response to clipboard
   /doctor     Diagnose installation health and tool connectivity
+  /circuit    Show per-provider circuit breakers
+  /circuit reset <provider|all>   Force-close a breaker (recover from circuit_open_skip)
+  /web [port] [--host H] [--no-auth]  Start web terminal / chat UI in background
+  /web status  Show whether the web server is running
   /memory [query]         Show/search persistent memories
   /memory consolidate     Extract long-term insights from current session via AI
   /skills           List available skills
@@ -64,11 +68,20 @@ Slash commands in REPL:
   /agent stop <name>    Stop a running agent
   /agent list           List running agents
   /agent templates      List available task templates
-  /ssj              SSJ Developer Mode — power menu (brainstorm, debate, worker, review…)
+  /ssj              SSJ Developer Mode — power menu (brainstorm, debate, worker, trading, review…)
+  /trading analyze <SYMBOL>   Multi-agent analysis (Bull/Bear debate → Risk panel → PM decision)
+  /trading backtest <SYM> [strategy]  Backtest a strategy (dual_ma, rsi_mean_reversion, bollinger_breakout, macd_crossover)
+  /trading price <SYMBOL>     Current price and key metrics
+  /trading indicators <SYMBOL>  Technical indicators report (SMA, RSI, MACD, Bollinger, ADX…)
+  /trading status             Trading memory status
+  /trading history            Past trading decisions
+  /trading memory [action]    Manage trading memory (list, search, clear)
   /image [prompt]   Send clipboard image to vision model
+  /video [topic]    AI video content factory — story → TTS → images → subtitles → MP4
   /voice            Record voice input, transcribe, and submit
   /voice status     Show available recording and STT backends
   /voice lang <code>  Set STT language (e.g. zh, en, ja — default: auto)
+  /tts              AI text-to-speech wizard — script → MP3 in any voice style
   /proactive [dur]  Background sentinel polling (e.g. /proactive 5m)
   /proactive off    Disable proactive polling
   /cloudsave setup <token>   Configure GitHub token for cloud sync
@@ -188,7 +201,7 @@ from commands.config_cmd import (
 from commands.core import (
     cmd_help, cmd_clear, cmd_context, cmd_cost, cmd_compact,
     cmd_init, cmd_export, cmd_copy, cmd_status, cmd_doctor,
-    cmd_proactive, cmd_image, run_setup_wizard,
+    cmd_proactive, cmd_image, cmd_circuit, cmd_web, run_setup_wizard,
 )
 
 # ── Checkpoint / Plan commands ─────────────────────────────────────────────
@@ -365,6 +378,8 @@ COMMANDS = {
     "copy":        cmd_copy,
     "status":      cmd_status,
     "doctor":      cmd_doctor,
+    "circuit":     cmd_circuit,
+    "web":         cmd_web,
     "setup":       lambda a, s, c: (run_setup_wizard(c), True)[1],
     "exit":        cmd_exit,
     "quit":        cmd_exit,
@@ -499,6 +514,8 @@ _CMD_META: dict[str, tuple[str, list[str]]] = {
     "copy":        ("Copy last response to clipboard",      []),
     "status":      ("Show session status and model info",   []),
     "doctor":      ("Diagnose installation health",         []),
+    "circuit":     ("Show / reset per-provider circuit breakers", ["status", "reset"]),
+    "web":         ("Start the web terminal / chat UI in background", ["status", "--no-auth", "--host"]),
     "setup":       ("Run interactive setup wizard",         []),
     "exit":        ("Exit cheetahclaws",              []),
     "quit":        ("Exit (alias for /exit)",             []),
@@ -702,11 +719,17 @@ def repl(config: dict, initial_prompt: str = None):
     query_lock = threading.RLock()
 
     # Apply rich_live config: disable in-place Live streaming if terminal has issues.
-    # Auto-detect SSH sessions and dumb terminals where ANSI cursor-up doesn't work.
-    import os as _os
+    # Auto-detect environments where ANSI cursor-up / live-rewrite doesn't work:
+    #   - SSH sessions (cursor-up fails across network PTY)
+    #   - Dumb terminals (no ANSI support)
+    #   - macOS Terminal.app (can't erase above scroll boundary → duplicated output)
+    #   - Screen/tmux over SSH
+    import os as _os, platform as _plat
     _in_ssh = bool(_os.environ.get("SSH_CLIENT") or _os.environ.get("SSH_TTY"))
     _is_dumb = (console is not None and getattr(console, "is_dumb_terminal", False))
-    _rich_live_default = not _in_ssh and not _is_dumb
+    _is_macos_terminal = (_plat.system() == "Darwin"
+                          and _os.environ.get("TERM_PROGRAM", "") in ("Apple_Terminal", ""))
+    _rich_live_default = not _in_ssh and not _is_dumb and not _is_macos_terminal
     set_rich_live(config.get("rich_live", _rich_live_default))
 
     # Initialize proactive polling state via RuntimeContext (defaults already set)
@@ -1428,6 +1451,15 @@ def main():
                         help="Enable extended thinking")
     parser.add_argument("--version", action="store_true", help="Print version")
     parser.add_argument("--setup", action="store_true", help="Run interactive setup wizard")
+    parser.add_argument("--web", action="store_true",
+                        help="Start web terminal (browser-based access)")
+    parser.add_argument("--port", type=int, default=None,
+                        help="Port for web terminal (default: 8080, "
+                             "auto-picks a free port if 8080 is taken)")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Host for web terminal (default: 127.0.0.1, use 0.0.0.0 for network)")
+    parser.add_argument("--no-auth", action="store_true",
+                        help="Disable web terminal password (local use only)")
     parser.add_argument("-h", "--help", action="store_true", help="Show help")
 
     args = parser.parse_args()
@@ -1438,6 +1470,11 @@ def main():
 
     if args.help:
         print(__doc__)
+        sys.exit(0)
+
+    if args.web:
+        from web.server import start_web_server
+        start_web_server(port=args.port, host=args.host, no_auth=args.no_auth)
         sys.exit(0)
 
     from cc_config import load_config, save_config, has_api_key

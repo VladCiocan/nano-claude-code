@@ -2,7 +2,7 @@
 commands/core.py — Core utility commands for CheetahClaws.
 
 Commands: /help, /clear, /context, /cost, /compact, /init, /export,
-          /copy, /status, /doctor, /proactive, /image
+          /copy, /status, /doctor, /proactive, /image, /circuit
 """
 from __future__ import annotations
 
@@ -34,9 +34,45 @@ def _get_version() -> str:
 def cmd_help(_args: str, _state, config) -> bool:
     try:
         import cheetahclaws
-        print(cheetahclaws.__doc__)
     except Exception:
         info("CheetahClaws — type /model, /save, /load, /history, /context, /exit for commands.")
+        return True
+
+    doc = cheetahclaws.__doc__ or ""
+    print(doc)
+
+    # Safety net: surface any registered command that the curated docstring
+    # forgot to mention (e.g. modular/plugin additions, or newly added commands
+    # whose author didn't update the docstring). Walks COMMANDS, groups by
+    # handler so aliases share a row, skips anything already referenced.
+    commands = getattr(cheetahclaws, "COMMANDS", {})
+    meta     = getattr(cheetahclaws, "_CMD_META", {})
+
+    aliases_by_func: dict[object, list[str]] = {}
+    for name, func in commands.items():
+        aliases_by_func.setdefault(func, []).append(name)
+
+    missing: list[tuple[str, str]] = []
+    seen: set[object] = set()
+    for func, names in aliases_by_func.items():
+        if func in seen:
+            continue
+        seen.add(func)
+        if any(f"/{n}" in doc for n in names):
+            continue
+        primary = min(names, key=len)
+        extra = [n for n in names if n != primary]
+        label = f"/{primary}" + (f" (/{', /'.join(extra)})" if extra else "")
+        desc = next((meta[n][0] for n in names if n in meta), "(no description)")
+        missing.append((label, desc))
+
+    if missing:
+        print()
+        print("Also available (auto-detected — not in curated list above):")
+        w = max(len(m[0]) for m in missing)
+        for label, desc in missing:
+            print(f"  {label:<{w}}  {desc}")
+
     return True
 
 
@@ -674,3 +710,136 @@ def cmd_image(args: str, state, config) -> Union[bool, tuple]:
 
     prompt = args.strip() if args.strip() else "What do you see in this image? Describe it in detail."
     return ("__image__", prompt)
+
+
+_web_thread = None  # daemon thread running start_web_server(), if any
+
+
+def cmd_web(args: str, state, config) -> bool:
+    """Start the web terminal / chat UI in a background thread.
+
+    /web                          — start on 127.0.0.1:8080 (auto-picks free port)
+    /web 9000                     — use port 9000
+    /web --host 0.0.0.0           — bind to network
+    /web --no-auth                — disable terminal password (local only)
+    /web status                   — show whether it's running
+    """
+    global _web_thread
+    import threading
+
+    tokens = (args or "").strip().split()
+    sub = tokens[0].lower() if tokens else ""
+
+    if sub == "status":
+        if _web_thread and _web_thread.is_alive():
+            info("Web server: running (started via /web this session).")
+        else:
+            info("Web server: not running.")
+        return True
+
+    if _web_thread and _web_thread.is_alive():
+        info("Web server already running in this session. Use /web status to check.")
+        return True
+
+    if os.environ.get("CHEETAHCLAWS_WEB_SERVER") == "1":
+        warn("You're already inside a web-terminal session. Nested web launch refused.")
+        return True
+
+    port: int | None = None
+    host = "127.0.0.1"
+    no_auth = False
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t.isdigit():
+            port = int(t)
+        elif t == "--no-auth":
+            no_auth = True
+        elif t == "--host" and i + 1 < len(tokens):
+            host = tokens[i + 1]; i += 1
+        elif t.startswith("--host="):
+            host = t.split("=", 1)[1]
+        elif t.startswith("--port="):
+            try: port = int(t.split("=", 1)[1])
+            except ValueError: pass
+        else:
+            warn(f"Unknown /web arg: {t}  (try: [port] [--host H] [--no-auth])")
+            return True
+        i += 1
+
+    try:
+        from web.server import start_web_server
+    except ImportError as e:
+        err(f"Web module unavailable: {e}")
+        return True
+
+    def _run():
+        try:
+            start_web_server(port=port, host=host, no_auth=no_auth)
+        except SystemExit:
+            pass
+        except Exception as e:
+            import logging_utils as _log
+            _log.error("web_server_crashed", error=str(e)[:200])
+
+    _web_thread = threading.Thread(target=_run, daemon=True, name="web-server")
+    _web_thread.start()
+    time.sleep(0.3)  # let the banner print before the REPL redraws its prompt
+    info("Web server started in background. Continue typing — REPL is still live.")
+    return True
+
+
+def cmd_circuit(args: str, state, config) -> bool:
+    """Inspect and manage per-provider circuit breakers.
+
+    /circuit                    — list all breakers and their state
+    /circuit status [provider]  — same as above, optionally filtered
+    /circuit reset <provider>   — force-close a breaker (or 'all')
+    """
+    import circuit_breaker as _cb
+
+    parts = args.strip().split()
+    sub = parts[0].lower() if parts else "status"
+    target = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("reset", "close", "clear"):
+        if not target:
+            err("Usage: /circuit reset <provider>  (or 'all')")
+            return True
+        if target.lower() == "all":
+            names = list(_cb._registry.keys())
+            if not names:
+                info("No circuit breakers to reset.")
+                return True
+            for name in names:
+                _cb.reset_breaker(name)
+            ok(f"Reset {len(names)} circuit breaker(s): {', '.join(names)}")
+            return True
+        if target not in _cb._registry:
+            warn(f"No circuit breaker registered for '{target}'. Nothing to reset.")
+            return True
+        _cb.reset_breaker(target)
+        ok(f"Circuit breaker for '{target}' reset (force-closed).")
+        return True
+
+    if sub not in ("status", ""):
+        err(f"Unknown /circuit subcommand: {sub}. Use: status | reset")
+        return True
+
+    breakers = _cb._registry
+    if target:
+        breakers = {k: v for k, v in breakers.items() if k == target}
+
+    if not breakers:
+        info("No circuit breakers active yet (none have been exercised this session).")
+        return True
+
+    for name, b in breakers.items():
+        st = b.state.value
+        color = {"closed": "green", "half_open": "yellow", "open": "red"}.get(st, "dim")
+        line = f"  {name:<12} state={clr(st, color)}  failures={len(b._failure_times)}/{b.threshold}"
+        if b._opened_at is not None and b.state.value == "open":
+            remaining = max(0.0, b.cooldown - (time.monotonic() - b._opened_at))
+            line += f"  cooldown_remaining={remaining:.0f}s"
+        print(line)
+    return True

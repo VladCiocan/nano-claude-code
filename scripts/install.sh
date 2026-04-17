@@ -24,11 +24,23 @@ ok()    { echo -e "${GREEN}[ok]${RESET}   $*"; }
 warn()  { echo -e "${YELLOW}[warn]${RESET} $*"; }
 fail()  { echo -e "${RED}[fail]${RESET} $*"; exit 1; }
 
+# ── Center helper (used for banners) ─────────────────────────────────────
+center() {
+    local txt="$1" w="$2"
+    local len=${#txt}
+    local pad_left=$(( (w - len) / 2 ))
+    local pad_right=$(( w - len - pad_left ))
+    printf "%${pad_left}s%s%${pad_right}s" "" "$txt" ""
+}
+BOX_W=42
+
 # ── Banner ───────────────────────────────────────────────────────────────
+B1=$(center "CheetahClaws Installer" $BOX_W)
+B2=$(center "Fast AI Coding Assistant" $BOX_W)
 echo ""
 echo -e "${CYAN}  ╭──────────────────────────────────────────╮${RESET}"
-echo -e "${CYAN}  │     CheetahClaws Installer               │${RESET}"
-echo -e "${CYAN}  │     Fast AI Coding Assistant              │${RESET}"
+echo -e "${CYAN}  │${B1}│${RESET}"
+echo -e "${CYAN}  │${B2}│${RESET}"
 echo -e "${CYAN}  ╰──────────────────────────────────────────╯${RESET}"
 echo ""
 
@@ -113,58 +125,104 @@ cd "$INSTALL_DIR"
 # ── Install with pip ───────────────────────────────────────────────────
 info "Installing CheetahClaws..."
 
-if [ "$PLATFORM" = "termux" ]; then
+VENV_DIR="$HOME/.cheetahclaws-venv"
+USE_VENV=false
+
+# Detect PEP 668 externally-managed Python (Homebrew Python 3.12+, Debian 12+, etc.)
+# Check for the EXTERNALLY-MANAGED marker file that pip reads
+STDLIB_PATH=$($PYTHON -c "import sysconfig; print(sysconfig.get_path('stdlib'))" 2>/dev/null || echo "")
+if [ -n "$STDLIB_PATH" ] && [ -f "$STDLIB_PATH/EXTERNALLY-MANAGED" ]; then
+    USE_VENV=true
+    info "Detected externally-managed Python (PEP 668) — using virtual environment."
+fi
+
+# macOS: always use venv (Homebrew, system Python, or any managed env)
+if [ "$PLATFORM" = "macos" ] && [ "$USE_VENV" = false ]; then
+    # Check if pip would refuse (belt-and-suspenders)
+    if ! $PYTHON -m pip install --quiet --dry-run pip 2>/dev/null; then
+        USE_VENV=true
+        info "macOS pip restricted — using virtual environment."
+    fi
+fi
+
+if [ "$USE_VENV" = true ]; then
+    # Create or reuse a dedicated venv
+    if [ ! -d "$VENV_DIR" ]; then
+        info "Creating virtual environment at $VENV_DIR ..."
+        $PYTHON -m venv "$VENV_DIR" || fail "Failed to create venv. Install python3-venv: sudo apt install python3-venv"
+        ok "Virtual environment created"
+    else
+        info "Using existing virtual environment at $VENV_DIR"
+    fi
+    # Activate venv for this script
+    source "$VENV_DIR/bin/activate"
+    PYTHON="python3"  # use venv python
+    PIP_BIN="$VENV_DIR/bin"
+
+    # Install inside venv (no --break-system-packages needed)
+    $PYTHON -m pip install --quiet . 2>/dev/null || \
+        $PYTHON -m pip install . || fail "pip install failed"
+
+elif [ "$PLATFORM" = "termux" ]; then
     # Termux: skip optional deps that may fail on Android
     $PYTHON -m pip install --quiet --break-system-packages . 2>/dev/null || \
         $PYTHON -m pip install --quiet . 2>/dev/null || \
         $PYTHON -m pip install . || fail "pip install failed"
+    PIP_BIN="$($PYTHON -m site --user-base 2>/dev/null)/bin"
 else
+    # Standard install (Linux with system Python, conda, etc.)
     $PYTHON -m pip install --quiet . 2>/dev/null || \
         $PYTHON -m pip install . || fail "pip install failed"
+    PIP_BIN="$($PYTHON -m site --user-base 2>/dev/null)/bin"
 fi
 
 ok "CheetahClaws installed"
 
-# ── Verify installation ────────────────────────────────────────────────
+# ── Verify installation & add to PATH ─────────────────────────────────
+# Determine where the binary lives
+if [ "$USE_VENV" = true ]; then
+    BIN_DIR="$VENV_DIR/bin"
+else
+    BIN_DIR="$PIP_BIN"
+fi
+
 if command -v cheetahclaws &>/dev/null; then
     ok "cheetahclaws is on PATH"
-else
-    # Add common pip bin dirs to PATH
-    PIP_BIN="$($PYTHON -m site --user-base 2>/dev/null)/bin"
-    if [ -f "$PIP_BIN/cheetahclaws" ]; then
-        SHELL_RC=""
-        CURRENT_SH="$(basename "${SHELL:-bash}")"
-        if [ "$CURRENT_SH" = "zsh" ]; then
-            SHELL_RC="$HOME/.zshrc"
-            touch "$SHELL_RC"  # ensure it exists on macOS
-        elif [ "$CURRENT_SH" = "fish" ]; then
-            SHELL_RC="$HOME/.config/fish/config.fish"
-        elif [ -f "$HOME/.bashrc" ]; then
-            SHELL_RC="$HOME/.bashrc"
-        elif [ -f "$HOME/.bash_profile" ]; then
-            SHELL_RC="$HOME/.bash_profile"
-        fi
-
-        if [ -n "$SHELL_RC" ]; then
-            if ! grep -q "$PIP_BIN" "$SHELL_RC" 2>/dev/null; then
-                echo "" >> "$SHELL_RC"
-                echo "# CheetahClaws" >> "$SHELL_RC"
-                echo "export PATH=\"$PIP_BIN:\$PATH\"" >> "$SHELL_RC"
-                ok "Added $PIP_BIN to PATH in $SHELL_RC"
-            fi
-        fi
-        export PATH="$PIP_BIN:$PATH"
-    else
-        warn "cheetahclaws not found on PATH — you may need to add pip's bin directory manually."
+elif [ -f "$BIN_DIR/cheetahclaws" ]; then
+    SHELL_RC=""
+    CURRENT_SH="$(basename "${SHELL:-bash}")"
+    if [ "$CURRENT_SH" = "zsh" ]; then
+        SHELL_RC="$HOME/.zshrc"
+        touch "$SHELL_RC"  # ensure it exists on macOS
+    elif [ "$CURRENT_SH" = "fish" ]; then
+        SHELL_RC="$HOME/.config/fish/config.fish"
+    elif [ -f "$HOME/.bashrc" ]; then
+        SHELL_RC="$HOME/.bashrc"
+    elif [ -f "$HOME/.bash_profile" ]; then
+        SHELL_RC="$HOME/.bash_profile"
     fi
+
+    if [ -n "$SHELL_RC" ]; then
+        if ! grep -q "$BIN_DIR" "$SHELL_RC" 2>/dev/null; then
+            echo "" >> "$SHELL_RC"
+            echo "# CheetahClaws" >> "$SHELL_RC"
+            echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$SHELL_RC"
+            ok "Added $BIN_DIR to PATH in $SHELL_RC"
+        fi
+    fi
+    export PATH="$BIN_DIR:$PATH"
+else
+    warn "cheetahclaws not found on PATH — you may need to add pip's bin directory manually."
 fi
 
 # ── Print version ──────────────────────────────────────────────────────
 VERSION=$(cheetahclaws --version 2>/dev/null || echo "installed")
+L1=$(center "Installation complete!" $BOX_W)
+L2=$(center "$VERSION" $BOX_W)
 echo ""
 echo -e "${GREEN}  ╭──────────────────────────────────────────╮${RESET}"
-echo -e "${GREEN}  │  Installation complete!                   │${RESET}"
-echo -e "${GREEN}  │  ${VERSION}                               ${RESET}"
+echo -e "${GREEN}  │${L1}│${RESET}"
+echo -e "${GREEN}  │${L2}│${RESET}"
 echo -e "${GREEN}  ╰──────────────────────────────────────────╯${RESET}"
 echo ""
 # Detect the user's shell for the reload hint
