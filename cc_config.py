@@ -18,14 +18,17 @@ DEFAULTS = {
     "max_tokens":       40000,
     "permission_mode":  "auto",   # auto | accept-all | manual
     "verbose":          False,
-    "thinking":         False,
+    # Tri-state: None = unset (use provider default), True = ON, False = explicit OFF.
+    # The explicit-OFF state matters for DeepSeek v4 where the server default
+    # is ON; providers.py only injects the disable toggle when value is False.
+    "thinking":         None,
     "thinking_budget":  10000,
     "custom_base_url":  "",       # for "custom" provider
     "max_tool_output":  32000,
     "max_agent_depth":  3,
     "max_concurrent_agents": 3,
-    "session_daily_limit":   10,    # max sessions kept per day in daily/
-    "session_history_limit": 200,  # max sessions kept in history.json
+    "session_daily_limit":   10000,    # max sessions kept per day in daily/
+    "session_history_limit": 100000,  # max sessions kept in history.json
     # ── Security settings ──────────────────────────────────────────────────
     # allowed_root: restrict file operations (Read/Write/Edit/Glob/Grep) to this
     # directory tree.  null = unrestricted (CLI default).  Set to the project

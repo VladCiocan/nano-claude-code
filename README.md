@@ -8,7 +8,7 @@ English | [中文](https://github.com/SafeRL-Lab/clawspring/blob/main/docs/READM
   </a>
 
   
-<h2 align="center" style="font-size: 30px;"><strong><em>CheetahClaws (Nano Claude Code) </em></strong>: A Fast, Easy-to-Use, Python-Native Personal AI Assistant for Any Model, Inspired by OpenClaw and Claude Code, Built to Work for You Autonomously 24/7</h2>
+<h2 align="center" style="font-size: 30px;"><strong><em>CheetahClaws (Nano Claude Code) </em></strong>: A Fast, Easy-to-Use, Production-Ready, Python-Native Personal AI Assistant for Any Model, Inspired by OpenClaw and Claude Code, Built to Work for You Autonomously 24/7</h2>
 <p align="center">
     <a href="https://cheetahclaws.github.io/">Website</a>
     ·
@@ -38,6 +38,44 @@ cheetahclaws        # start chatting!
 ```
 
 Other install methods: [pip install](#alternative-install-with-pip) | [uv install](#alternative-install-with-uv) | [run from source](#alternative-run-directly-from-source-no-install) | [full details](#installation)
+
+## 🔥🔥🔥 News (Pacific Time)
+
+ 
+- Apr 30, 2026: **Docker / home-server support (#73) — `Dockerfile`, `docker-compose.yml`, `.env.example`, host Ollama via `host.docker.internal`, workspace bind-mount for Samba sharing. `--web` mode now auto-starts configured Telegram / WeChat / Slack bridges in the same process so a single container delivers browser UI + phone bridge. Plus two terminal/agent fixes: `AskUserQuestion` no longer deadlocks the terminal (#69) — synchronous render+read instead of a queue/event the agent thread can't drain. `messages_to_openai` emits `content: ""` instead of `null` for tool-only assistant turns so Ollama's OpenAI-compat endpoint stops 400-ing with `invalid message content type: <nil>`; 400 / `BadRequestError` reclassified as a non-retryable `INVALID_REQUEST` so a malformed body no longer trips the circuit breaker (#71).**
+- Apr 24, 2026: **Support Deepseek V4 models, multi-model prompt adaptation — single shared `default.md` baseline + tiny per-family overlays (Anthropic XML tags · Gemini 3 explicit Agentic Mode · OpenAI o-series no-narration). Routing is by model family, not provider/runtime — same Qwen prompt whether served via DashScope, Ollama, or OpenRouter. Overlays must cite a vendor prompting guide (≤ 20 lines, enforced by tests). DeepSeek v4 thinking-mode protocol (`reasoning_content` round-trip + `thinking: ON` by default). fix(setup-wizard): tolerate api_key_env=None for ollama/lmstudio (#59)**
+- Apr 20, 2026 (**v3.05.76**): **Research pipeline — 20 sources across academia/tech/finance/social/web + cross-platform attention heat table, publication trend sparkline, notable-citer analysis, entity extraction, multi-query expansion, side-by-side compare, saved reports, weekly trend tracking via `/monitor`, one-click `/ssj` wizard. Also including Chinese platforms: Zhihu (知乎) · Bilibili (B站) · Weibo (微博) · Rednote (小红书).**
+- Apr 18, 2026 (**v3.05.75**): **External plugin discovery via `CHEETAHCLAWS_PLUGIN_PATH` + safer dependency management; tool-history integrity fix for OpenAI-compatible providers (DeepSeek et al.); end-to-end prompt-cache token tracking across providers with full checkpoint round-trip**
+- Apr 16, 2026 (**v3.05.74**): **Web UI production hardening — persistence, multi-user auth, ops endpoints, JS module split, pytest suite**
+  
+ 
+For more news, see [here](https://github.com/SafeRL-Lab/cheetahclaws/blob/main/docs/news.md)
+
+
+---
+
+# CheetahClaws
+
+CheetahClaws: **A Lightweight** and **Easy-to-Use** Python Reimplementation of Claude Code **Supporting Any Model**, such as Claude, GPT, Gemini, Kimi, Qwen, Zhipu, DeepSeek, MiniMax, and local open-source models via Ollama or any OpenAI-compatible endpoint.
+
+---
+
+## Content
+  * [Why CheetahClaws](#why-cheetahclaws)
+  * [CheetahClaws vs OpenClaw](#cheetahclaws-vs-openclaw)
+  * [Features](#features)
+  * [Supported Models](#supported-models)
+  * [Installation](#installation)
+  * [Usage: Closed-Source API Models](#usage-closed-source-api-models)
+  * [Usage: Open-Source Models (Local)](#usage-open-source-models-local)
+  * [Model Name Format](#model-name-format)
+  * [Trading Agent](#trading-agent) (multi-agent analysis, backtesting, memory)
+  * [Web UI](#web-ui) (chat interface, settings, API endpoints)
+  * [Documentation](#documentation) (guides for all features)
+  * [Contributing](#contributing)
+  * [FAQ](#faq)
+  * [Citation](#citation)
+
 
 ### Demos
  <div align=center>
@@ -125,53 +163,6 @@ Other install methods: [pip install](#alternative-install-with-pip) | [uv instal
  </div>
 
 ---
-
-
-
- 
-## 🔥🔥🔥 News (Pacific Time)
-
- 
-- Apr 16, 2026 (**v3.05.74**): **Web UI production hardening — persistence, multi-user auth, ops endpoints, JS module split, pytest suite**
-  
-
-
-
-
-
-
-
-
-
- 
-For more news, see [here](https://github.com/SafeRL-Lab/cheetahclaws/blob/main/docs/news.md)
-
-
----
-
-# CheetahClaws
-
-CheetahClaws: **A Lightweight** and **Easy-to-Use** Python Reimplementation of Claude Code **Supporting Any Model**, such as Claude, GPT, Gemini, Kimi, Qwen, Zhipu, DeepSeek, MiniMax, and local open-source models via Ollama or any OpenAI-compatible endpoint.
-
----
-
-## Content
-  * [Why CheetahClaws](#why-cheetahclaws)
-  * [CheetahClaws vs OpenClaw](#cheetahclaws-vs-openclaw)
-  * [Features](#features)
-  * [Supported Models](#supported-models)
-  * [Installation](#installation)
-  * [Usage: Closed-Source API Models](#usage-closed-source-api-models)
-  * [Usage: Open-Source Models (Local)](#usage-open-source-models-local)
-  * [Model Name Format](#model-name-format)
-  * [Trading Agent](#trading-agent) (multi-agent analysis, backtesting, memory)
-  * [Web UI](#web-ui) (chat interface, settings, API endpoints)
-  * [Documentation](#documentation) (guides for all features)
-  * [Contributing](#contributing)
-  * [FAQ](#faq)
-  * [Citation](#citation)
-
-
 
 
 ## Why CheetahClaws
@@ -348,6 +339,7 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 | SSJ Developer Mode | `/ssj` opens a persistent interactive power menu with **15 shortcuts**: Brainstorm, TODO viewer, Worker, Expert Debate, Propose, Review, Readme, Commit, Scan, Promote, Video factory, TTS factory, Monitor, **Trading**, Agent. Stays open between actions; `/command` passthrough supported. |
 | Trading agent | `/trading analyze <SYMBOL>` runs a full multi-agent pipeline: data collection → Bull/Bear researcher debate → research judge → risk management panel (aggressive/conservative/neutral) → portfolio manager final decision (BUY/OVERWEIGHT/HOLD/UNDERWEIGHT/SELL). `/trading backtest` runs strategy backtests with 4 built-in strategies. BM25 memory system learns from past trades. Supports US/HK/A-share stocks and 20+ cryptos. |
 | Monitor | `/monitor` (no args → wizard) subscribes to AI-monitored topics on a schedule and pushes reports to Telegram/Slack/console. Topics: `ai_research` (arxiv), `stock_<TICKER>`, `crypto_<SYMBOL>`, `world_news` (Reuters/BBC/AP), `custom:<query>`. Schedules: 15m to weekly. Background scheduler daemon with `/monitor start/stop/status`. |
+| Research (multi-source) | `/research <topic>` fans out to **20 sources** in parallel and synthesizes a brief with inline citations, a **cross-platform attention heat table**, **top-mentioned entities** (models / benchmarks / orgs / people), and a **12-month publication trend sparkline**: **arXiv · Semantic Scholar · OpenAlex · HuggingFace Papers · alphaXiv · Google Scholar · HackerNews · GitHub · Reddit · StackOverflow · Google News · Polymarket · SEC EDGAR · Tavily · Brave · Twitter/X · 知乎 Zhihu · B站 Bilibili · 微博 Weibo · 小红书 Xiaohongshu**. Supports `--range 30d\|6m\|1y\|…` / `--since YYYY-MM-DD` / `--until YYYY-MM-DD` — each source translates to its native date filter. `--citations` surfaces "Notable citing authors" with ≥10k total citations. `--expand` asks the model for 2-6 sibling subqueries and merges their results for broader coverage. `/research compare "A" vs "B" [vs "C"]` produces a side-by-side comparative brief with `[A-N]`/`[B-N]`/`[C-N]`-prefixed citations. Every run auto-saves to `~/.cheetahclaws/research_reports/`; `/reports list\|open\|delete\|path` to browse, `--save-as PATH` to export. **Weekly trend tracking**: `/subscribe research:<topic> weekly` (or `/ssj` → `17. Trend Track`) re-runs the whole pipeline automatically and pushes digests to Telegram / Slack / console. One-click wizard via `/ssj` → `16. Research` / `17. Trend Track` / `18. Reports`. 13/20 sources zero-config; 7 optional (Tavily · Brave · Twitter · Zhihu · Weibo · Xiaohongshu · Google Scholar). See [docs/guides/research.md](docs/guides/research.md). |
 | Autonomous Agents | `/agent` (no args → wizard) launches autonomous background agent loops driven by Markdown task templates. 4 built-in templates: `research_assistant`, `auto_bug_fixer`, `paper_writer`, `auto_coder`. Iteration summaries pushed via bridge. Custom templates: drop a `.md` file into `~/.cheetahclaws/agent_templates/`. |
 | Remote Control job queue | All three bridges (Telegram/Slack/WeChat) maintain a per-bridge FIFO job queue when the AI is busy. `!jobs` / `!j` — dashboard; `!job <id>` — detail; `!retry <id>` — re-run a failed job; `!cancel [id]` — stop current job. Tool step tracking with `on_tool_start`/`on_tool_end` hooks. Persistent log at `~/.cheetahclaws/jobs.json`. |
 | Worker | `/worker [task#s]` reads `brainstorm_outputs/todo_list.txt`, implements each pending task with a dedicated model prompt, and marks it done (`- [x]`). Supports task selection (`/worker 1,4,6`), custom path (`--path`), and worker count limit (`--workers`). Detects and redirects accidental brainstorm `.md` paths. |
@@ -444,6 +436,12 @@ Claude Code is a powerful, production-grade AI coding assistant — but its sour
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SafeRL-Lab/cheetahclaws/main/scripts/install.sh | bash
+```
+
+Or
+
+```
+pip install cheetahclaws
 ```
 
 Works on **Linux, macOS, WSL2, and Android (Termux)**. The installer handles everything: checks Python 3.10+, clones the repo, installs via pip, and adds `cheetahclaws` to your PATH.
@@ -891,7 +889,7 @@ A production-ready browser interface with real user accounts, SQLite-backed sess
 ### Install and start
 
 ```bash
-pip install 'cheetahclaws[web]'              # pulls sqlalchemy + passlib + PyJWT
+pip install 'cheetahclaws[web]'              # pulls sqlalchemy + bcrypt + PyJWT
 
 cheetahclaws --web                           # auto-picks a free port (tries 8080 first)
 cheetahclaws --web --port 9000               # bind exactly :9000 (fails loudly if taken)
@@ -966,6 +964,21 @@ Browser ──→ /chat                ──→ 9 JS modules load from /static/
 
 > **Full guide:** [docs/guides/web-ui.md](docs/guides/web-ui.md)
 
+### Docker / Home Server
+
+For headless deployments (home server with local Ollama, cloud VM, container host) the repo ships a `Dockerfile` and `docker-compose.yml`. The web UI plus any configured Telegram / WeChat / Slack bridge run together in a single container:
+
+```bash
+cp .env.example .env       # set UID/GID and any cloud API keys
+mkdir -p workspace data
+docker compose up -d --build
+# open http://<host-ip>:8080/chat
+```
+
+The container reaches an Ollama instance running on the host via `host.docker.internal:11434`. Mount `./workspace` into the container and share it over Samba to access the agent's working files from your phone or other PCs.
+
+> **Full guide:** [docs/guides/docker.md](docs/guides/docker.md)
+
 ---
 
 ## Documentation
@@ -975,6 +988,7 @@ Detailed guides have been moved to [`docs/guides/`](docs/guides/) to keep this R
 | Guide | What's Inside |
 |-------|---------------|
 | [**Web UI**](docs/guides/web-ui.md) | Chat UI, PTY terminal, API endpoints, settings panel, model switching, dark/light theme, SSE streaming, session management, authentication |
+| [**Docker / Home Server**](docs/guides/docker.md) | Dockerfile + docker-compose for home-server deployments: web UI + bridges in one container, host Ollama via `host.docker.internal`, workspace bind-mount, Samba sharing |
 | [**Reference**](docs/guides/reference.md) | CLI, 36+ commands, 33 built-in tools (incl. WebBrowse, ReadEmail, SendEmail, ReadPDF, ReadImage, ReadSpreadsheet), session search, auxiliary model, error classification, prompt injection detection, tool cache, parallel tools |
 | [**Extensions**](docs/guides/extensions.md) | Memory system, Skills, Sub-Agents, MCP servers, Plugin system, Monitor subscriptions, Autonomous Agents |
 | [**Bridges**](docs/guides/bridges.md) | Telegram, WeChat, Slack setup and remote control from your phone |

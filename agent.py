@@ -11,7 +11,7 @@ from tool_registry import get_tool_schemas
 from tools import execute_tool
 import tools as _tools_init  # ensure built-in tools are registered on import
 from providers import stream, AssistantTurn, TextChunk, ThinkingChunk, detect_provider
-from compaction import maybe_compact, estimate_tokens, get_context_limit, compact_messages
+from compaction import maybe_compact, estimate_tokens, get_context_limit, compact_messages, sanitize_history
 import logging_utils as _log
 import quota as _quota
 from circuit_breaker import CircuitOpenError as _CircuitOpenError
@@ -31,6 +31,8 @@ class AgentState:
     messages: list = field(default_factory=list)
     total_input_tokens:  int = 0
     total_output_tokens: int = 0
+    total_cache_read_tokens:  int = 0
+    total_cache_write_tokens: int = 0
     turn_count: int = 0
 
 
@@ -104,6 +106,17 @@ def run(
         except Exception as _compact_err:
             _log.warn("compact_failed", error=str(_compact_err))
 
+        # Enforce tool_calls ↔ tool-response pairing before every API call.
+        # Defends against compaction artifacts, crashed tool execs, or any
+        # other source of orphan 'tool' messages that OpenAI-compatible
+        # providers (DeepSeek et al.) reject with a 400.
+        _before_len = len(state.messages)
+        state.messages = sanitize_history(state.messages)
+        if len(state.messages) != _before_len:
+            _log.warn("history_sanitized",
+                      session_id=session_id,
+                      removed=_before_len - len(state.messages))
+
         # ── Quota check — before spending tokens ──────────────────────────
         try:
             _quota.check_quota(session_id, config)
@@ -173,14 +186,23 @@ def run(
             break
 
         # Record assistant turn in neutral format
-        state.messages.append({
+        _assistant_msg = {
             "role":       "assistant",
             "content":    assistant_turn.text,
             "tool_calls": assistant_turn.tool_calls,
-        })
+        }
+        # DeepSeek v4 requires reasoning_content to be echoed back on
+        # subsequent requests when the turn contains tool_calls.  Storing it
+        # on the neutral history lets messages_to_openai pass it through.
+        _rc = getattr(assistant_turn, "reasoning_content", "")
+        if _rc and assistant_turn.tool_calls:
+            _assistant_msg["reasoning_content"] = _rc
+        state.messages.append(_assistant_msg)
 
         state.total_input_tokens  += assistant_turn.in_tokens
         state.total_output_tokens += assistant_turn.out_tokens
+        state.total_cache_read_tokens  += getattr(assistant_turn, 'cache_read_tokens', 0)
+        state.total_cache_write_tokens += getattr(assistant_turn, 'cache_write_tokens', 0)
         yield TurnDone(assistant_turn.in_tokens, assistant_turn.out_tokens)
 
         if not assistant_turn.tool_calls:

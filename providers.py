@@ -8,7 +8,7 @@ Supported providers:
   kimi       — Moonshot AI (moonshot-v1-8k/32k/128k)
   qwen       — Alibaba DashScope (qwen-max, qwen-plus, ...)
   zhipu      — Zhipu GLM (glm-4, glm-4-plus, ...)
-  deepseek   — DeepSeek (deepseek-chat, deepseek-reasoner, ...)
+  deepseek   — DeepSeek (deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner)
   minimax    — MiniMax (MiniMax-Text-01, abab6.5s-chat, ...)
   ollama     — Local Ollama (llama3.3, qwen2.5-coder, ...)
   lmstudio   — Local LM Studio (any loaded model)
@@ -96,8 +96,9 @@ PROVIDERS: dict[str, dict] = {
         "type":       "openai",
         "api_key_env": "DEEPSEEK_API_KEY",
         "base_url":   "https://api.deepseek.com/v1",
-        "context_limit": 64000,
+        "context_limit": 128000,
         "models": [
+            "deepseek-v4-pro", "deepseek-v4-flash",
             "deepseek-chat", "deepseek-coder", "deepseek-reasoner",
         ],
     },
@@ -158,6 +159,9 @@ COSTS = {
     "qwen-plus":                (0.4,   1.2),
     "deepseek-chat":            (0.27,  1.1),
     "deepseek-reasoner":        (0.55,  2.19),
+    # DeepSeek v4 — pricing placeholder (matches v3 tiers; verify before billing UX)
+    "deepseek-v4-flash":        (0.27,  1.1),
+    "deepseek-v4-pro":          (0.55,  2.19),
     "glm-4-plus":               (0.7,   0.7),
     "MiniMax-Text-01":          (0.7,   2.1),
     "abab6.5s-chat":            (0.1,   0.1),
@@ -229,8 +233,10 @@ _MODEL_OUTPUT_LIMITS: dict[str, int] = {
     "gemini-2.0-flash":             8192,
     "gemini-1.5-pro":               8192,
     # DeepSeek
-    "deepseek-chat":     8192,
-    "deepseek-reasoner": 32768,
+    "deepseek-chat":       8192,
+    "deepseek-reasoner":   32768,
+    "deepseek-v4-flash":   32768,
+    "deepseek-v4-pro":     32768,
 }
 
 # Cache: base_url → {model_id → max_model_len}
@@ -428,7 +434,11 @@ def messages_to_openai(messages: list, ollama_native_images: bool = False) -> li
             result.append(msg_out)
 
         elif role == "assistant":
-            msg: dict = {"role": "assistant", "content": m.get("content") or None}
+            # Use "" rather than None for the all-tool-calls case: Ollama's
+            # OpenAI-compat endpoint rejects content: null with
+            # `invalid message content type: <nil>` (issue #71). Empty string
+            # is accepted by every OpenAI-compat backend we target.
+            msg: dict = {"role": "assistant", "content": m.get("content") or ""}
             tcs = m.get("tool_calls", [])
             if tcs:
                 msg["tool_calls"] = []
@@ -445,6 +455,13 @@ def messages_to_openai(messages: list, ollama_native_images: bool = False) -> li
                     if tc.get("extra_content"):
                         tc_msg["extra_content"] = tc["extra_content"]
                     msg["tool_calls"].append(tc_msg)
+                # DeepSeek v4 spec: when an assistant turn carries tool_calls,
+                # its `reasoning_content` must be echoed back on subsequent
+                # requests.  Benign for other OpenAI-compat providers — they
+                # ignore unknown fields.
+                rc = m.get("reasoning_content")
+                if rc:
+                    msg["reasoning_content"] = rc
             result.append(msg)
 
         elif role == "tool":
@@ -466,12 +483,23 @@ class ThinkingChunk:
     def __init__(self, text): self.text = text
 
 class AssistantTurn:
-    """Completed assistant turn with text + tool_calls."""
-    def __init__(self, text, tool_calls, in_tokens, out_tokens):
-        self.text        = text
-        self.tool_calls  = tool_calls   # list of {id, name, input}
-        self.in_tokens   = in_tokens
-        self.out_tokens  = out_tokens
+    """Completed assistant turn with text + tool_calls.
+
+    ``reasoning_content`` carries model-emitted chain-of-thought surfaced via an
+    OpenAI-compat ``delta.reasoning_content`` field (DeepSeek v4, Kimi K2
+    Thinking, GLM-4.6, etc.).  DeepSeek v4 requires it to be echoed back when
+    the assistant turn contains tool_calls; see ``messages_to_openai``.
+    """
+    def __init__(self, text, tool_calls, in_tokens, out_tokens,
+                 cache_read_tokens=0, cache_write_tokens=0,
+                 reasoning_content=""):
+        self.text                 = text
+        self.tool_calls           = tool_calls   # list of {id, name, input}
+        self.in_tokens            = in_tokens
+        self.out_tokens           = out_tokens
+        self.cache_read_tokens    = cache_read_tokens
+        self.cache_write_tokens = cache_write_tokens
+        self.reasoning_content    = reasoning_content
 
 
 def stream_anthropic(
@@ -524,11 +552,40 @@ def stream_anthropic(
                     "input": block.input,
                 })
 
+        cache_r, cache_w = _anthropic_cache_tokens(final.usage)
         yield AssistantTurn(
             text, tool_calls,
             final.usage.input_tokens,
             final.usage.output_tokens,
+            cache_read_tokens=cache_r,
+            cache_write_tokens=cache_w,
         )
+
+
+def _anthropic_cache_tokens(usage) -> tuple[int, int]:
+    """Extract (cache_read, cache_write) token counts from an Anthropic usage object.
+
+    Returns (0, 0) if the fields are missing -- older Anthropic SDKs, non-cached
+    calls and most downstream wrappers (e.g. Bedrock over litellm) all fall
+    through to this default rather than raising AttributeError.
+    """
+    read  = getattr(usage, "cache_read_input_tokens", 0) or 0
+    write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    return int(read), int(write)
+
+
+def _openai_cached_read_tokens(usage) -> int:
+    """Extract the OpenAI-compatible cached read-token count.
+
+    OpenAI-compatible providers surface cache hits as
+    `usage.prompt_tokens_details.cached_tokens`; there is no separate
+    "cache creation" counter in the OpenAI schema (caching is implicit on
+    their side), so the write-side is always 0 for this family of providers.
+    """
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is None:
+        return 0
+    return int(getattr(details, "cached_tokens", 0) or 0)
 
 
 def stream_openai_compat(
@@ -566,6 +623,19 @@ def stream_openai_compat(
         if not config.get("disable_tool_choice"):
             kwargs["tool_choice"] = "auto"
     _prov = detect_provider(model)
+
+    # DeepSeek v4: thinking is ON by default and controlled via extra_body.
+    # `thinking` is tri-state in DEFAULTS (cc_config.py): None = unset (let
+    # provider default stand → ON for v4), True = explicit ON (also default),
+    # False = explicit OFF (user toggled via /thinking).  Only the explicit-OFF
+    # case injects the disable toggle.  `is False` is intentional: distinguishes
+    # explicit False from None.
+    if _prov == "deepseek":
+        if config.get("thinking") is False:
+            kwargs.setdefault("extra_body", {})["thinking"] = {"type": "disabled"}
+        eff = config.get("reasoning_effort")
+        if eff:
+            kwargs["reasoning_effort"] = eff
     _effective_mt = resolve_max_tokens(config, _prov, model, base_url, api_key)
     if _effective_mt:
         # Further cap by provider-level max_completion_tokens if present
@@ -581,9 +651,11 @@ def stream_openai_compat(
         else:
             kwargs["max_tokens"] = val
 
-    text          = ""
+    text            = ""
+    reasoning_text  = ""
     tool_buf: dict = {}   # index → {id, name, args_str}
     in_tok = out_tok = 0
+    cache_read_tok = cache_write_tok = 0
 
     stream = client.chat.completions.create(**kwargs)
     for chunk in stream:
@@ -592,10 +664,20 @@ def stream_openai_compat(
             if hasattr(chunk, "usage") and chunk.usage:
                 in_tok  = chunk.usage.prompt_tokens
                 out_tok = chunk.usage.completion_tokens
+                cache_read_tok = _openai_cached_read_tokens(chunk.usage) or cache_read_tok
             continue
 
         choice = chunk.choices[0]
         delta  = choice.delta
+
+        # Some providers (DeepSeek v4, Kimi K2 Thinking, GLM-4.6) stream
+        # chain-of-thought on a sibling `reasoning_content` field before any
+        # visible content.  Surface it as ThinkingChunk so the UI renders it
+        # consistently with Anthropic extended-thinking / Ollama thinking.
+        reasoning_delta = getattr(delta, "reasoning_content", None)
+        if reasoning_delta:
+            reasoning_text += reasoning_delta
+            yield ThinkingChunk(reasoning_delta)
 
         if delta.content:
             text += delta.content
@@ -622,6 +704,7 @@ def stream_openai_compat(
         if hasattr(chunk, "usage") and chunk.usage:
             in_tok  = chunk.usage.prompt_tokens  or in_tok
             out_tok = chunk.usage.completion_tokens or out_tok
+            cache_read_tok = _openai_cached_read_tokens(chunk.usage) or cache_read_tok
 
     tool_calls = []
     for idx in sorted(tool_buf):
@@ -635,7 +718,10 @@ def stream_openai_compat(
             tc_entry["extra_content"] = v["extra_content"]
         tool_calls.append(tc_entry)
 
-    yield AssistantTurn(text, tool_calls, in_tok, out_tok)
+    yield AssistantTurn(
+        text, tool_calls, in_tok, out_tok, cache_read_tok, cache_write_tok,
+        reasoning_content=reasoning_text,
+    )
 
 
 def stream_ollama(
@@ -750,7 +836,7 @@ def stream_ollama(
 
     # Ollama doesn't return exact token counts via livestream easily until "done",
     # but we can do a rough estimate or 0, cheetahclaws handles zero gracefully
-    yield AssistantTurn(text, tool_calls, 0, 0)
+    yield AssistantTurn(text, tool_calls, 0, 0, 0, 0)
 
 
 def stream(
@@ -823,7 +909,9 @@ def stream(
                 breaker.record_success()
                 _log.info("api_call_done", session_id=session_id,
                           provider=provider_name, model=model_name,
-                          in_tokens=event.in_tokens, out_tokens=event.out_tokens)
+                          in_tokens=event.in_tokens, out_tokens=event.out_tokens,
+                          cache_read_tokens=getattr(event, 'cache_read_tokens', 0),
+                          cache_write_tokens=getattr(event, 'cache_write_tokens', 0))
             yield event
     except Exception as exc:
         breaker.record_failure()

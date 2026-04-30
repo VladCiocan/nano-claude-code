@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cheetahclaws"
-version = "3.05.74"
+version = "3.05.76"
 description = "CheetahClaws: An Extensible, Python-Native Agent System for Autonomous Multi-Model Workflows"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,8 +25,8 @@ browser     = ["playwright"]
 files       = ["pymupdf", "openpyxl"]
 ocr         = ["pytesseract", "Pillow"]
 trading     = ["yfinance>=0.2.30", "rank-bm25>=0.2.2"]
-web         = ["sqlalchemy>=2.0", "passlib[bcrypt]>=1.7.4", "PyJWT>=2.8.0"]
-all         = ["sounddevice", "Pillow", "prompt_toolkit>=3.0.43", "playwright", "pymupdf", "openpyxl", "pytesseract", "yfinance>=0.2.30", "rank-bm25>=0.2.2", "sqlalchemy>=2.0", "passlib[bcrypt]>=1.7.4", "PyJWT>=2.8.0"]
+web         = ["sqlalchemy>=2.0", "bcrypt>=4.0", "PyJWT>=2.8.0"]
+all         = ["sounddevice", "Pillow", "prompt_toolkit>=3.0.43", "playwright", "pymupdf", "openpyxl", "pytesseract", "yfinance>=0.2.30", "rank-bm25>=0.2.2", "sqlalchemy>=2.0", "bcrypt>=4.0", "PyJWT>=2.8.0"]
 
 [project.scripts]
 cheetahclaws = "cheetahclaws:main"
@@ -62,12 +62,15 @@ packages = [
     "cc_mcp", "memory", "monitor", "multi_agent", "plugin", "skill", "task",
     "voice", "video", "checkpoint",
     "ui", "web", "bridges", "commands",
+    "research", "research.sources",
+    "prompts",
     "modular", "modular.video", "modular.voice", "modular.trading",
     "modular.trading.data", "modular.trading.engines", "modular.trading.agents",
 ]
 
 [tool.setuptools.package-data]
 "web" = ["*.js", "*.css", "*.html", "*.ico", "*.png", "static/js/*.js", "static/*.png", "static/*.ico"]
+"prompts" = ["base/*.md", "overlays/*.md", "fragments/*.md", "README.md"]
 "modular.video" = ["PLUGIN.md"]
 "modular.voice" = ["PLUGIN.md"]
 "modular.trading" = ["PLUGIN.md", "skills/*.md", "agent_templates/*.md"]
